@@ -6,11 +6,19 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 
 ## Como funciona
 
-- Quem cria a sala é o **anfitrião**: escolhe jogadores, rodadas e categorias, e manda o convite (link ou código de 8 letras).
-- Os celulares se conectam direto entre si (WebRTC, via [Trystero](https://github.com/dmotz/trystero) com sinalização pela rede Nostr). Não há servidor próprio.
-- O anfitrião distribui os lugares (ninguém pega o mesmo número) e mostra quem está na sala. Cada pessoa coloca o próprio nome, se quiser.
-- Qualquer pessoa marca **Acertamos**, **Erramos** ou **Trocar tema**, e todos os celulares mudam juntos. No final aparece o placar.
-- **Plano B:** se não conectar, ou se o anfitrião sair, dá para seguir em "modo sem conexão". O código da sala gera as mesmas cartas em todos os celulares e todos apertam o mesmo botão ao fim da rodada.
+- Quem cria a sala é o **anfitrião**: escolhe jogadores, rodadas e categorias, e manda o convite (link, QR code ou código de 8 letras).
+- Cada pessoa coloca o próprio nome, se quiser. O anfitrião pode mudar a ordem ou tirar alguém da sala.
+- A cada rodada cada um recebe uma carta de 1 a 100. Quando achar que é a sua vez, toca em **Baixar minha carta**. O app mostra a mesa para todos e avisa quando uma carta sai **fora da ordem**.
+- Antes de alguém baixar, dá para **trocar o tema** ou **escrever um tema da turma**.
+- No fim aparece o placar da partida e o **placar da noite**.
+- Se o anfitrião cair, o próximo jogador conectado assume sozinho. Se ele voltar, entra como jogador.
+- **Plano B:** sem internet, ou se ninguém conseguir conectar, dá para jogar em "modo sem conexão" (todos apertam Acertamos/Erramos juntos).
+
+## Conexão
+
+- Os celulares se conectam direto entre si (WebRTC) usando [Trystero](https://github.com/dmotz/trystero), por **duas redes ao mesmo tempo** (Nostr e MQTT). Se uma falhar, a outra segura.
+- A biblioteca vem do jsDelivr (com esm.sh de reserva) e fica guardada no celular depois da primeira vez.
+- Para quem está no 4G/5G, um servidor **TURN** ajuda muito. Veja as instruções em `config.js`.
 
 ## PWA
 
@@ -32,5 +40,7 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 | `styles.css` | Visual (tema claro e escuro) |
 | `app.js` | Lógica do jogo |
 | `sw.js` | Service worker (cache offline) |
+| `config.js` | Servidor TURN opcional |
+| `lib/qrcodegen.js` | Gerador de QR code (Project Nayuki, MIT) |
 | `manifest.webmanifest` | Dados do app instalável |
 | `icons/`, `fonts/` | Ícones e fonte Inter |
