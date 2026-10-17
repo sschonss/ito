@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const MAX_LEVEL = 3, LIVES = 3, STORE = 'ito-state';
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -53,8 +53,6 @@ const I = {
   download:'<svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
   shuffle:'<svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>',
   chevron:'<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
-  speaker:'<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
-  mute:'<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
   x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   heart:'<svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.5-9.3C1 8.2 3.3 4.5 7 4.5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 3.7 0 6 3.7 4.5 7.2C19.5 16.4 12 21 12 21z"/></svg>',
@@ -71,30 +69,6 @@ let peek = false;
 let installEvt = null;
 let swReg = null;
 let draftMask = ALL_MASK;
-const PREFS_KEY = 'ito-prefs';
-let prefs = (()=>{ try{ return Object.assign({autoSpeak:true}, JSON.parse(localStorage.getItem(PREFS_KEY))||{}); }catch(e){ return {autoSpeak:true}; } })();
-function savePrefs(){ try{ localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }catch(e){} }
-
-/* ---------- Voz: lê o tema em voz alta ---------- */
-const canSpeak = 'speechSynthesis' in window;
-let ptVoice = null;
-function pickVoice(){
-  if(!canSpeak) return;
-  const vs = speechSynthesis.getVoices();
-  ptVoice = vs.find(v=>/^pt[-_]BR/i.test(v.lang) && /google|natural|luciana|francisca|neural/i.test(v.name))
-         || vs.find(v=>/^pt[-_]BR/i.test(v.lang)) || vs.find(v=>/^pt/i.test(v.lang)) || null;
-}
-if(canSpeak){ pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice); }
-function speakTheme(){
-  if(!canSpeak || !S) return;
-  const [title, low, high] = theme();
-  const u = new SpeechSynthesisUtterance(`Tema: ${title}. Um é ${low}. Cem é ${high}.`);
-  u.lang = 'pt-BR'; if(ptVoice) u.voice = ptVoice; u.rate = 0.98;
-  const btn = document.querySelector('[data-act="speak"]');
-  u.onstart = ()=>btn && btn.classList.add('speaking');
-  u.onend = u.onerror = ()=>btn && btn.classList.remove('speaking');
-  speechSynthesis.cancel(); speechSynthesis.speak(u);
-}
 
 const $ = s => document.querySelector(s);
 const view = $('#view');
@@ -271,7 +245,6 @@ function game(){
   <section class="panel theme">
     <div class="theme-top">
       <p class="eyebrow">Tema · ${CATS[ci].name}</p>
-      ${canSpeak?`<button class="speak-btn" data-act="speak" aria-label="Ouvir o tema">${I.speaker}</button>`:''}
     </div>
     <h2>${title}</h2>
     <div class="scale"><span class="end">1</span><span class="bar"></span><span class="end">100</span></div>
@@ -290,7 +263,7 @@ function game(){
   </div></div>`, true);
 }
 
-function next(){ S.round++; S.themePos++; peek=false; save(); game(); if(prefs.autoSpeak) speakTheme(); }
+function next(){ S.round++; S.themePos++; peek=false; save(); game(); }
 
 /* ---------- Menu ---------- */
 function openMenu(){
@@ -300,7 +273,6 @@ function openMenu(){
     items.push(['share',I.share,'Convidar para a sala']);
     items.push(['reveal',I.eye,'Conferir cartas de todos']);
     items.push(['syncBox',I.sliders,'Corrigir rodada']);
-    if(canSpeak) items.push(['toggleVoice', prefs.autoSpeak?I.speaker:I.mute, prefs.autoSpeak?'Leitura do tema: ligada':'Leitura do tema: desligada']);
     items.push('hr');
   }
   items.push(['rules',I.book,'Como jogar']);
@@ -321,8 +293,6 @@ const act = {
   toggleCat(b){ draftMask^=(1<<+b.dataset.v); home(true); },
   allCats(){ draftMask = draftMask===ALL_MASK ? 0 : ALL_MASK; home(true); },
   create(){ if(!draftMask) return; P=newCode(draftPlayers, draftMask); history.replaceState(null,'','#'+P.code); seatScreen(); },
-  speak(){ speakTheme(); },
-  toggleVoice(){ prefs.autoSpeak=!prefs.autoSpeak; savePrefs(); toast(prefs.autoSpeak?'Leitura automática do tema ligada':'Leitura automática do tema desligada'); if(S && S.status==='play') game(); },
   join(){
     const p=parseCode($('#code').value);
     if(!p){ $('#err').textContent='Código inválido. Use o formato ABCD-4.'; return; }
@@ -331,7 +301,7 @@ const act = {
   resume(){ S=load(); if(!S) return home(); history.replaceState(null,'','#'+S.code); peek=false; game(); },
   seat(b){
     S={code:P.code,n:P.n,seat:+b.dataset.v,round:1,level:1,lives:LIVES,themePos:0,status:'play',v:1};
-    peek=false; save(); game(); if(prefs.autoSpeak) speakTheme();
+    peek=false; save(); game();
   },
   async copy(){
     const code=(S||P).code;
@@ -368,7 +338,7 @@ const act = {
     if(S.lives<=0){ S.lives=0; S.status='lost'; save(); game(); return; }
     toast(`${S.lives} ${S.lives===1?'vida restante':'vidas restantes'}`); next();
   },
-  skip(){ S.themePos++; save(); game(); if(prefs.autoSpeak) speakTheme(); },
+  skip(){ S.themePos++; save(); game(); },
   restart(){ S.level=1; S.lives=LIVES; S.status='play'; next(); },
   async syncBox(){
     const v=await dialog({title:'Corrigir rodada', body:`<p>Alguém ficou com a rodada ou o tema diferente? Copie aqui os números do celular de outra pessoa.</p>
@@ -387,8 +357,7 @@ const act = {
     dialog({title:'Como jogar', body:`
       <ol>
         <li>Cada pessoa recebe, em segredo, carta(s) de <b>1 a 100</b>.</li>
-        <li>O app <b>lê o tema em voz alta</b> a cada rodada (dá para ouvir de novo no alto-falante do cartão ou desligar no menu).</li>
-        <li>Pensem no <b>tema</b>. Cada um descreve sua carta com algo do tema, sem dizer o número. Ex.: no tema “Comidas”, quem tem 95 pode dizer “pizza”.</li>
+        <li>Leiam o <b>tema</b>. Cada um descreve sua carta com algo do tema, sem dizer o número. Ex.: no tema “Comidas”, quem tem 95 pode dizer “pizza”.</li>
         <li>Baixem as cartas em <b>ordem crescente</b>, uma por vez, falando o número em voz alta.</li>
         <li>Se alguém baixar uma carta maior que outra ainda na mão, vocês erraram.</li>
       </ol>

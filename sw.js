@@ -1,6 +1,6 @@
 /* ito — service worker
  * Ao publicar uma nova versão, aumente VERSION aqui e em app.js. */
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const CACHE = 'ito-' + VERSION;
 const ASSETS = [
   './', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
