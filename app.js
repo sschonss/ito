@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -110,11 +110,12 @@ const rng=s=>mulberry(xmur3(s)());
 function shuffle(arr,r){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
 const deckFor=(code,game,round)=>shuffle([...Array(100)].map((_,i)=>i+1), rng(code+'|'+game+'|'+round));
 const deck=()=>deckFor(S.code,S.game,S.round);
-function theme(){
-  if(S.custom) return [S.custom.title, S.custom.low, S.custom.high, -1];
-  const order=shuffle(THEMES.map((t,i)=>[t,i]).filter(([t])=>S.mask&(1<<t[3])).map(([,i])=>i), rng(S.code+'|themes'));
-  return THEMES[order[S.themePos%order.length]];
+function themeAt(x, pos){
+  const order=shuffle(THEMES.map((t,i)=>[t,i]).filter(([t])=>x.mask&(1<<t[3])).map(([,i])=>i), rng(x.code+'|themes'));
+  return THEMES[order[pos%order.length]];
 }
+function themeOf(x){ return x.custom ? [x.custom.title, x.custom.low, x.custom.high, -1] : themeAt(x, x.themePos); }
+const theme=()=>themeOf(S);
 
 /* ---------- Código da sala: ABCD-EFGH ---------- */
 const L24='ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -145,7 +146,7 @@ function dialog({title,body,actions}){
     d.returnValue=''; d.onclose=()=>resolve(d.returnValue); d.showModal();
   });
 }
-const confirmBox=(title,body,ok='Confirmar')=>dialog({title,body:`<p>${body}</p>`,actions:[{label:'Cancelar',value:'no'},{label:ok,value:'ok',cls:'brand'}]}).then(v=>v==='ok');
+const confirmBox=(title,body,ok='Confirmar')=>dialog({title,body:`<div class="cbody">${body}</div>`,actions:[{label:'Cancelar',value:'no'},{label:ok,value:'ok',cls:'brand'}]}).then(v=>v==='ok');
 function setMeta(html){ $('#appbarMeta').innerHTML=html||''; }
 function render(html,dock,keep){
   const y=window.scrollY, ae=document.activeElement;
@@ -181,10 +182,10 @@ function qrSvg(text){
    ====================================================================== */
 function home(keep){
   const typed=keep && $('#code') ? $('#code').value : '';
-  S=null; P=null; setMeta('');
+  S=null; P=null; setMeta(''); document.body.classList.remove('tv');
   const local=ls.get(LOCAL_KEY,null), online=ls.get(ONLINE_KEY,null);
   const resume= online?`<button class="resume" data-act="resume"><span class="dot"></span>
-      <span><strong>Voltar para a sala</strong><span>Sala ${online.code}${online.role==='host'?' · você é o anfitrião':''}</span></span>${svgStroke(I.chevron)}</button>`
+      <span><strong>${online.role==='tv'?'Voltar para o telão':'Voltar para a sala'}</strong><span>Sala ${online.code}${online.role==='host'?' · você é o anfitrião':''}</span></span>${svgStroke(I.chevron)}</button>`
     : local?`<button class="resume" data-act="resume"><span class="dot"></span>
       <span><strong>Continuar partida</strong><span>Sala ${local.code} · rodada ${Math.min(local.round,local.rounds)} de ${local.rounds}</span></span>${svgStroke(I.chevron)}</button>`:'';
   render(`
@@ -212,6 +213,7 @@ function home(keep){
     <input id="code" class="field" placeholder="ABCD-EFGH" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" enterkeyhint="go">
     <p class="err" id="err"></p>
     <button class="btn" data-act="join">Entrar</button>
+    <button class="btn text tv-join" data-act="joinTv">${svgStroke(I.tv)}Entrar como telão (TV ou notebook)</button>
   </section>
   <div class="foot"><button data-act="rules">Como jogar</button>·<button data-act="hardUpdate">Atualizar app</button></div>`, false, keep);
   const input=$('#code'); input.value=typed;
@@ -226,7 +228,7 @@ function home(keep){
 function netReset(){
   NET.links.forEach(l=>{ try{ l.room.leave(); }catch(e){} });
   clearTimeout(NET.timer); clearTimeout(NET.graceTimer);
-  Object.assign(NET,{links:[],role:null,code:null,st:null,peers:{},failed:false,timedOut:false,timer:null,graceTimer:null,fresh:false});
+  Object.assign(NET,{links:[],role:null,code:null,st:null,peers:{},failed:false,timedOut:false,timer:null,graceTimer:null,fresh:false,spectator:false});
 }
 async function loadLib(kind){
   if(NET.libs[kind]) return NET.libs[kind];
@@ -275,10 +277,10 @@ const hostAlive=()=>NET.st && (NET.st.hostCid===CID || aliveCids().has(NET.st.ho
 
 function saveOnline(){
   if(NET.role==='host') ls.set(ONLINE_KEY,{code:NET.code, role:'host', st:NET.st});
-  else if(NET.role==='guest') ls.set(ONLINE_KEY,{code:NET.code, role:'guest', st:NET.st});
+  else if(NET.role==='guest') ls.set(ONLINE_KEY,{code:NET.code, role:NET.spectator?'tv':'guest', st:NET.st});
 }
 function onPeerJoin(peer){
-  sendTo(peer, {t:'hello', cid:CID, name:myName});
+  sendTo(peer, {t:'hello', cid:CID, name:myName, spectator:NET.spectator});
   if(NET.role==='host') sendTo(peer, {t:'state', st:NET.st});
 }
 function onPeerLeave(peer){
@@ -314,6 +316,7 @@ function newerState(a,b){ // a é mais nova que b?
 }
 function onMsg(m, peer){
   if(!m || typeof m!=='object') return;
+  if(m.t==='react'){ if(m.id && seenReacts.has(m.id)) return; seenReacts.add(m.id); if(seenReacts.size>200) seenReacts.clear(); showReaction(m.e, String(m.by||'').slice(0,20)); return; }
   if(m.t==='hello' && typeof m.cid==='string'){
     NET.peers[peer]=m.cid;
     if(NET.role==='host') hostHello(m, peer);
@@ -328,7 +331,7 @@ function onMsg(m, peer){
     }
     if(NET.role!=='guest' || !newerState(m.st, NET.st)) return;
     NET.st=m.st; NET.fresh=true; NET.timedOut=false; clearTimeout(NET.timer); clearTimeout(NET.graceTimer);
-    if(!m.st.players.some(p=>p.cid===CID)) sendTo(peer,{t:'hello', cid:CID, name:myName});
+    if(!NET.spectator && !m.st.players.some(p=>p.cid===CID)) sendTo(peer,{t:'hello', cid:CID, name:myName});
     saveOnline(); showOnline();
     return;
   }
@@ -354,6 +357,7 @@ function onMsg(m, peer){
 function hostHello(m, peer){
   const st=NET.st;
   if((st.banned||[]).includes(m.cid)){ sendTo(peer,{t:'kicked'}); return; }
+  if(m.spectator){ sendTo(peer,{t:'state', st}); return; }       // telão: só assiste
   let pl=st.players.find(p=>p.cid===m.cid);
   if(!pl){
     if(st.players.length>=10){ sendTo(peer,{t:'full'}); return; }
@@ -373,33 +377,68 @@ function checkRoundOver(st){
   if(activeSeats(st).every(s=>played.has(s))){
     st.roundOver=true;
     st.results.push(st.table.every(t=>t.ok)?1:0);
+    const [title,low,high]=themeOf(st), d=deckFor(st.code,st.game,st.round);
+    st.log=(st.log||[]).concat({game:st.game, round:st.round, title, low, high,
+      plays:st.table.map(t=>({seat:t.seat, card:t.card, ok:t.ok, hint:(st.hints||{})[t.seat]||''})),
+      held:st.players.filter(p=>!played.has(p.seat)).map(p=>({seat:p.seat, card:d[p.seat-1], hint:(st.hints||{})[p.seat]||''}))}).slice(-60);
+    st.vote=null;
   }
 }
 function applyAct(st, a, by){
   const isHost=by.cid===st.hostCid, fresh=a.game===st.game && a.round===st.round;
   if(a.t==='start' && st.phase==='lobby' && isHost){ st.phase='play'; setEv(st,'start',by); return true; }
   if(a.t==='play' && st.phase==='play' && fresh && !st.roundOver && !st.table.some(t=>t.seat===by.seat)){
-    const d=deckFor(st.code,st.game,st.round), card=d[by.seat-1], played=new Set(st.table.map(t=>t.seat));
-    const ok=!activeSeats(st).some(s=>!played.has(s) && s!==by.seat && d[s-1]<card);
-    st.table.push({seat:by.seat, card, ok});
-    setEv(st,'play',by,{card,ok});
+    const t=playSeat(st, by.seat);
+    setEv(st,'play',by,{card:t.card, ok:t.ok});
     checkRoundOver(st);
     return true;
   }
+  if(a.t==='plan' && st.phase==='play' && fresh && !st.roundOver && Array.isArray(a.order)){
+    st.plan=a.order.map(Number).filter(x=>x>=1 && x<=st.players.length).slice(0,10);
+    return true;
+  }
+  if(a.t==='reveal' && st.phase==='play' && fresh && !st.roundOver && Array.isArray(a.order)){
+    const act=new Set(activeSeats(st)); let n=0;
+    a.order.map(Number).forEach(seat=>{
+      if(act.has(seat) && !st.table.some(t=>t.seat===seat)){ playSeat(st, seat); n++; }
+    });
+    if(!n) return false;
+    setEv(st,'reveal',by,{n});
+    checkRoundOver(st);
+    return true;
+  }
+  if(a.t==='hint' && st.phase==='play' && fresh && !st.roundOver){
+    st.hints=st.hints||{};
+    const h=String(a.text||'').trim().slice(0,30);
+    if(h) st.hints[by.seat]=h; else delete st.hints[by.seat];
+    return true;
+  }
+  if(a.t==='voteStart' && st.phase==='play' && fresh && !st.table.length && !st.vote){
+    st.vote={opts:[st.themePos+1, st.themePos+2], votes:{}};
+    setEv(st,'vote',by); return true;
+  }
+  if(a.t==='vote' && st.vote && fresh && (a.i===0||a.i===1)){
+    st.vote.votes[by.cid]=a.i;
+    const voters=st.players.filter(p=>p.on).map(p=>p.cid);
+    if(voters.every(c=>c in st.vote.votes)) resolveVote(st, by);
+    return true;
+  }
+  if(a.t==='voteEnd' && st.vote && fresh){ resolveVote(st, by); return true; }
   if(a.t==='next' && st.phase==='play' && fresh && st.roundOver){
     if(st.results.length>=st.rounds){
       st.phase='done';
       st.history=(st.history||[]).concat({game:st.game, score:st.results.filter(x=>x===1).length, total:st.rounds});
     } else { st.round++; st.themePos++; st.table=[]; st.roundOver=false; st.custom=null; }
+    st.hints={}; st.vote=null; st.plan=[];
     setEv(st,'next',by); return true;
   }
-  if(a.t==='skip' && st.phase==='play' && a.themePos===st.themePos && !st.table.length){ st.themePos++; st.custom=null; setEv(st,'skip',by); return true; }
+  if(a.t==='skip' && st.phase==='play' && a.themePos===st.themePos && !st.table.length){ st.themePos++; st.custom=null; st.vote=null; setEv(st,'skip',by); return true; }
   if(a.t==='custom' && st.phase==='play' && fresh && !st.table.length && a.title){
-    st.custom={title:String(a.title).slice(0,60), low:String(a.low||'pouco').slice(0,30), high:String(a.high||'muito').slice(0,30)};
+    st.custom={title:String(a.title).slice(0,60), low:String(a.low||'pouco').slice(0,30), high:String(a.high||'muito').slice(0,30)}; st.vote=null;
     setEv(st,'custom',by); return true;
   }
   if(a.t==='restart' && st.phase==='done' && a.game===st.game){
-    st.game++; st.round=1; st.results=[]; st.themePos++; st.table=[]; st.roundOver=false; st.custom=null; st.phase='play';
+    st.game++; st.round=1; st.results=[]; st.themePos++; st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[];
     setEv(st,'restart',by); return true;
   }
   if(isHost && st.phase==='lobby' && (a.t==='kick' || a.t==='move')){
@@ -410,6 +449,18 @@ function applyAct(st, a, by){
     return true;
   }
   return false;
+}
+function playSeat(st, seat){
+  const d=deckFor(st.code,st.game,st.round), card=d[seat-1], played=new Set(st.table.map(t=>t.seat));
+  const ok=!activeSeats(st).some(s=>!played.has(s) && s!==seat && d[s-1]<card);
+  const t={seat, card, ok}; st.table.push(t);
+  return t;
+}
+function resolveVote(st, by){
+  const v=st.vote, c=[0,0]; Object.values(v.votes).forEach(i=>c[i]++);
+  const w=c[1]>c[0]?1:0;
+  st.themePos=v.opts[w]; st.custom=null; st.vote=null;
+  setEv(st,'voted',by,{title:themeAt(st,st.themePos)[0]});
 }
 function hostCommit(){
   NET.st.ver=(NET.st.ver||0)+1;
@@ -429,14 +480,14 @@ function startHost(room, saved){
   netReset(); NET.role='host'; lastEv='';
   NET.st=saved || { code:room.code, rounds:room.rounds, mask:room.mask, hostCid:CID, ver:1,
     players:[{seat:1, cid:CID, name:myName, on:true}], banned:[], phase:'lobby',
-    game:1, round:1, results:[], themePos:0, table:[], roundOver:false, custom:null, history:[], ev:null };
+    game:1, round:1, results:[], themePos:0, table:[], roundOver:false, custom:null, history:[], ev:null, hints:{}, log:[], vote:null };
   NET.st.players.forEach(p=>p.on=p.cid===CID);
   const me=NET.st.players.find(p=>p.cid===CID); if(me && myName) me.name=myName;
   history.replaceState(null,'','#'+NET.st.code);
   saveOnline(); connect(NET.st.code);
 }
-function startGuest(room, saved){
-  netReset(); NET.role='guest'; lastEv=''; P=room;
+function startGuest(room, saved, spectator){
+  netReset(); NET.role='guest'; NET.spectator=!!spectator; lastEv=''; P=room;
   if(saved) NET.st=saved;                  // última versão conhecida (ajuda se o anfitrião não voltar)
   history.replaceState(null,'','#'+room.code);
   saveOnline(); connect(room.code);
@@ -448,7 +499,8 @@ function viewFromNet(st){
   st.players.forEach(p=>names[p.seat-1]=p.name);
   S={ mode:'online', code:st.code, rounds:st.rounds, mask:st.mask, n:st.players.length, names,
       seat:me?me.seat:0, game:st.game, round:st.round, results:st.results, themePos:st.themePos,
-      status:st.phase==='done'?'done':'play', table:st.table||[], roundOver:!!st.roundOver, custom:st.custom, history:st.history||[] };
+      status:st.phase==='done'?'done':'play', table:st.table||[], roundOver:!!st.roundOver, custom:st.custom, history:st.history||[],
+      hints:st.hints||{}, vote:st.vote||null, log:st.log||[], plan:st.plan||[], players:st.players };
 }
 function showOnline(){
   if(!NET.role) return;
@@ -459,23 +511,38 @@ function showOnline(){
     if(lastEv) announce(st);
     lastEv=st.ev.id;
   }
-  if(st.phase==='lobby') lobby(); else game();
+  if(NET.spectator) tv(); else if(st.phase==='lobby') lobby(); else game();
 }
 function announce(st){
   const ev=st.ev, mine=ev.cid===CID;
+  const lastOk=()=>st.results[st.results.length-1]===1;
+  const roundEnd=()=>{ if(!st.roundOver) return; if(lastOk()){ SFX.good(); confetti(); vibrate(40); } else vibrate([90,60,90]); };
   if(ev.k==='play'){
-    if(!ev.ok){ vibrate([90,60,90]); toast(`Fora da ordem! ${mine?'Você':ev.by} baixou ${ev.card}`); }
-    else if(!mine) toast(`${ev.by} baixou ${ev.card}`);
-    if(st.roundOver){ vibrate(st.results[st.results.length-1]?40:[90,60,90]); }
+    revealFrom=st.table.length-1; revealAnimUntil=Date.now()+700;
+    if(!ev.ok){ SFX.bad(); vibrate([90,60,90]); toast(`Fora da ordem! ${mine?'Você':ev.by} baixou ${ev.card}`); }
+    else { SFX.card(); if(!mine) toast(`${ev.by} baixou ${ev.card}`); }
+    setTimeout(roundEnd, 450);
+    return;
+  }
+  if(ev.k==='reveal'){
+    const n=ev.n||1, start=st.table.length-n; revealFrom=start; revealAnimUntil=Date.now()+n*450+900;
+    st.table.slice(start).forEach((t,i)=>setTimeout(()=>{ t.ok?SFX.card():(SFX.bad(),vibrate(80)); }, i*450+150));
+    setTimeout(roundEnd, n*450+400);
+    setTimeout(()=>{ if(NET.st===st) showOnline(); }, n*450+950);
+    if(!mine) toast(`${ev.by} revelou as cartas`);
     return;
   }
   if(ev.k==='newhost'){ toast(mine?'Você agora é o anfitrião':`${ev.by} agora é o anfitrião`); return; }
-  if(ev.k==='next' || ev.k==='restart' || ev.k==='start') vibrate(st.phase==='done'?[60,40,60]:30);
+  if(ev.k==='voted'){ SFX.pop(); toast(`Tema escolhido: ${ev.title}`); return; }
+  if(ev.k==='next' && st.phase==='done'){
+    const pct=st.results.filter(x=>x===1).length/st.rounds;
+    vibrate([60,40,60]); if(pct>=.5){ SFX.win(); confetti(); }
+  } else if(ev.k==='next' || ev.k==='restart' || ev.k==='start') vibrate(30);
   if(mine) return;
-  const msg={start:'começou a partida', next:st.phase==='done'?'abriu o resultado':'passou para a próxima rodada', skip:'trocou o tema', custom:'escreveu um tema', restart:'começou outra partida'}[ev.k];
+  const msg={start:'começou a partida', next:st.phase==='done'?'abriu o resultado':'passou para a próxima rodada', skip:'trocou o tema',
+    custom:'escreveu um tema', restart:'começou outra partida', vote:'abriu uma votação de tema'}[ev.k];
   if(msg) toast(`${ev.by} ${msg}`);
 }
-
 function connecting(){
   setMeta(`Sala <b>${NET.code}</b>`);
   const stuck=NET.failed || NET.timedOut;
@@ -499,6 +566,7 @@ function lobby(){
   render(`
   ${!hostAlive()?banner():''}
   ${roomCard(st.code, `${st.rounds} ${st.rounds===1?'rodada':'rodadas'} · ${catNames(st.mask)}`)}
+  <p class="tv-tip">${svgStroke(I.tv)}<span>Tem TV ou notebook por perto? Abra o ito nele, digite o código e toque em <b>Entrar como telão</b>.</span></p>
   <section class="panel">
     <div class="row-between"><h2>Na sala</h2><span class="count">${count} ${count===1?'pessoa':'pessoas'}</span></div>
     <ul class="roster">${st.players.map(p=>`<li class="${isOn(p)?'':'off'}">
@@ -544,8 +612,9 @@ const saveLocal=()=>ls.set(LOCAL_KEY,S);
 function localAct(t){
   if(t==='win'||t==='lose'){
     S.results.push(t==='win'?1:0);
-    if(S.results.length>=S.rounds){ S.status='done'; S.history=(S.history||[]).concat({game:S.game, score:S.results.filter(x=>x===1).length, total:S.rounds}); vibrate([60,40,60]); }
-    else { S.round++; S.themePos++; vibrate(30); toast(t==='win'?'Boa! Próxima rodada':'Faz parte. Próxima rodada'); }
+    if(S.results.length>=S.rounds){ S.status='done'; S.history=(S.history||[]).concat({game:S.game, score:S.results.filter(x=>x===1).length, total:S.rounds}); vibrate([60,40,60]);
+      if(S.results.filter(x=>x===1).length/S.rounds>=.5){ SFX.win(); confetti(); } }
+    else { S.round++; S.themePos++; vibrate(30); toast(t==='win'?'Boa! Próxima rodada':'Faz parte. Próxima rodada'); if(t==='win'){ SFX.good(); confetti(); } else SFX.bad(); }
   } else if(t==='skip'){ S.themePos++; }
   else if(t==='restart'){ S.game++; S.round=1; S.results=[]; S.themePos++; S.status='play'; }
   saveLocal(); game();
@@ -578,9 +647,12 @@ function game(){
       <div class="score"><strong>${score}</strong><span>de ${total}</span></div>
       <p>${msg}</p>
       ${progress()}
+      ${highlightsHtml()}
       ${historyList()}
-      <div class="stack"><button class="btn brand" data-act="restart">Jogar de novo</button><button class="btn outline" data-act="leave">Sair</button></div>
-    </section>`, false, online);
+      <div class="stack"><button class="btn brand" data-act="restart">Jogar de novo</button>
+        <button class="btn soft" data-act="shareSummary">${svgStroke(I.share)}Compartilhar resumo</button>
+        <button class="btn outline" data-act="leave">Sair</button></div>
+    </section>${online?reactionsBar():''}`, false, online);
     return;
   }
   if(!S.seat){ render(`<section class="panel connect"><div class="spinner"></div><h2>Entrando na partida…</h2></section>`,false,true); return; }
@@ -593,10 +665,10 @@ function game(){
     <h2>${esc(title)}</h2>
     <div class="scale"><span class="end">1</span><span class="bar"></span><span class="end">100</span></div>
     <div class="scale-labels"><span>${esc(low)}</span><span>${esc(high)}</span></div>
-    ${canEditTheme?`<div class="theme-actions">
-      ${online?`<button class="chip" data-act="customTheme">${svgStroke(I.pencil)}Escrever tema</button>`:''}
-      <button class="chip" data-act="skip">${svgStroke(I.shuffle)}Trocar tema</button></div>`:''}
-  </section>`;
+    ${canEditTheme && !(online && S.vote)?`<div class="theme-actions">
+      ${online?`<button class="chip" data-act="customTheme">${svgStroke(I.pencil)}Escrever</button><button class="chip" data-act="voteStart">${svgStroke(I.vote)}Votar</button>`:''}
+      <button class="chip" data-act="skip">${svgStroke(I.shuffle)}Trocar</button></div>`:''}
+  </section>${online && S.vote ? votePanel() : ''}`;
   const cardHtml=`<p class="whose">Sua carta, ${esc(nameOf(S.seat))}</p>
   <div class="hand"><button class="card ${peek||iPlayed?'up':''} ${iPlayed?'played':''}" data-act="peek" aria-label="${peek?'Sua carta: '+mine:'Carta escondida'}">
     <span class="face back">${I.thread}</span>
@@ -615,27 +687,42 @@ function game(){
   }
 
   // Mesa (modo conectado)
-  const playedSeats=new Set(S.table.map(t=>t.seat));
-  const d=deck();
-  const missing=[...Array(S.n)].map((_,i)=>i+1).filter(s=>!playedSeats.has(s) && isActiveSeat(s));
+  const playedSeats=new Set(S.table.map(t=>t.seat)), d=deck();
+  const pending=planOrder(), hintOf=s=>S.hints[s]||'';
   const roundOk=S.roundOver && S.table.every(t=>t.ok);
-  const unplayedReveal=S.roundOver?[...Array(S.n)].map((_,i)=>i+1).filter(s=>!playedSeats.has(s)).map(s=>({seat:s,card:d[s-1],gone:true})):[];
+  const held=S.roundOver?[...Array(S.n)].map((_,i)=>i+1).filter(s=>!playedSeats.has(s)).map(s=>({seat:s,card:d[s-1]})):[];
+  const anim=Date.now()<revealAnimUntil;
   const table=`<section class="panel table">
-    <div class="row-between"><h2>Na mesa</h2><span class="count">${S.table.length} de ${S.table.length+missing.length}</span></div>
-    ${S.table.length?`<ol class="pile">${S.table.map(t=>`<li class="${t.ok?'':'bad'} ${t.seat===S.seat?'me':''}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
-      ${unplayedReveal.map(t=>`<li class="gone"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span><em>saiu</em></li>`).join('')}</ol>`
-      :'<p class="empty">Ninguém baixou ainda. Quem achar que tem a menor carta começa.</p>'}
-    ${!S.roundOver&&missing.length?`<p class="missing">Faltam: ${missing.map(s=>esc(nameOf(s))).join(', ')}</p>`:''}
+    <div class="row-between"><h2>Na mesa</h2><span class="count">${S.table.length} de ${S.table.length+pending.length}</span></div>
+    ${S.table.length?`<ol class="pile ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${t.seat===S.seat?'me':''} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
+      ${held.map(t=>`<li class="gone"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span><em>saiu</em></li>`).join('')}</ol>`
+      :'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
   </section>`;
+  const order=!S.roundOver && pending.length ? `<section class="panel order">
+    <div class="row-between"><h2>Ordem da turma</h2><span class="count">${pending.length} na mão</span></div>
+    <p class="lead">Combinem quem baixa primeiro e arrumem aqui. Qualquer um pode mexer.</p>
+    <ol class="order-list">${pending.map((s,i)=>`<li class="${s===S.seat?'me':''}">
+      <span class="pos">${S.table.length+i+1}º</span>
+      <span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">sem dica</i>'}</span>
+      <button class="row-btn" data-act="planMove" data-s="${s}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">${svgStroke(I.up)}</button>
+      <button class="row-btn" data-act="planMove" data-s="${s}" data-d="1" ${i===pending.length-1?'disabled':''} aria-label="Descer">${svgStroke(I.down)}</button>
+    </li>`).join('')}</ol>
+    ${pending.length>1?`<button class="btn outline" data-act="revealPlan">${svgStroke(I.eye)}Revelar tudo nessa ordem</button>`:''}
+  </section>` : '';
+  const hintBox=!iPlayed && !S.roundOver ? `<section class="panel hint-box">
+    <h2>Sua dica</h2><p class="lead">A palavra que você falou. Todos veem na mesa.</p>
+    <div class="name-row"><input id="myHint" class="name-input" maxlength="30" placeholder="Ex.: pizza" value="${esc(hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
+    <button class="btn soft" data-act="saveHint">${hintOf(S.seat)?'Trocar':'Enviar'}</button></div></section>` : '';
   const last=S.results.length>=S.rounds;
   const dock=S.roundOver
     ? `<div class="result ${roundOk?'good':'bad'}">${roundOk?I.check:I.x}<span>${roundOk?'Ordem perfeita! Rodada certa.':'Teve carta fora da ordem.'}</span></div>
        <button class="btn brand" data-act="next">${last?'Ver resultado':'Próxima rodada'}</button>`
     : iPlayed
       ? `<p class="note">Sua carta já está na mesa</p><button class="btn soft" disabled>Esperando os outros…</button>`
-      : `<p class="note">Baixe quando achar que é a sua vez</p><button class="btn brand" data-act="playCard">${svgStroke(I.play)}Baixar minha carta</button>`;
-  render(`${hostGone?banner():''}${statusTop(score)}${themeCard}${cardHtml}${table}
+      : `<p class="note">Baixe a sua quando for a vez, ou revelem todas pela ordem da turma</p><button class="btn brand" data-act="playCard">${svgStroke(I.play)}Baixar minha carta</button>`;
+  render(`${hostGone?banner():''}${statusTop(score)}${themeCard}${cardHtml}${hintBox}${reactionsBar()}${table}${order}
     <div class="dock"><div class="dock-inner">${dock}</div></div>`, true, true);
+  const hi=$('#myHint'); hi && hi.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveHint(); } });
 
   function themeCardWrap(){ return statusTop(score)+themeCard+cardHtml; }
 }
@@ -652,6 +739,188 @@ function isActiveSeat(seat){
 }
 
 /* ======================================================================
+   Efeitos: sons, confete, reações
+   ====================================================================== */
+Object.assign(I, {
+  vote:'<svg viewBox="0 0 24 24"><path d="M4 12l3 3 5-6M14 7h6M14 12h6M14 17h6"/></svg>',
+  sound:'<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>',
+  mute:'<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9zM17 9l5 6M22 9l-5 6"/></svg>',
+  tv:'<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+});
+const EMOJIS=['👏','😂','🤔','😱','👀','❤️'];
+const seenReacts=new Set();
+let soundOn=ls.get('ito-sound',true), actx=null, revealAnimUntil=0, revealFrom=0, lastReact=0;
+function audio(){ if(!actx){ try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(actx && actx.state==='suspended') actx.resume().catch(()=>{}); return actx; }
+function tone(notes){
+  if(!soundOn) return; const ac=audio(); if(!ac) return;
+  const t0=ac.currentTime+.01;
+  notes.forEach(([f,dt,dur,type,vol])=>{ const o=ac.createOscillator(), g=ac.createGain();
+    o.type=type||'sine'; o.frequency.value=f; g.gain.setValueAtTime(0,t0+dt); g.gain.linearRampToValueAtTime(vol||.16,t0+dt+.012);
+    g.gain.exponentialRampToValueAtTime(.0001,t0+dt+dur); o.connect(g); g.connect(ac.destination); o.start(t0+dt); o.stop(t0+dt+dur+.05); });
+}
+const SFX={
+  card:()=>tone([[620,0,.09,'triangle',.14],[930,.05,.08,'triangle',.08]]),
+  bad:()=>tone([[196,0,.28,'sawtooth',.09],[155,.13,.32,'sawtooth',.09]]),
+  good:()=>tone([[523,0,.14],[659,.1,.14],[784,.2,.3]]),
+  win:()=>tone([[523,0,.14],[659,.12,.14],[784,.24,.14],[1047,.36,.5]]),
+  pop:()=>tone([[880,0,.05,'sine',.06]])
+};
+function confetti(){
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const c=document.createElement('canvas'); c.className='confetti'; document.body.appendChild(c);
+  const dpr=Math.min(2,devicePixelRatio||1), W=c.width=innerWidth*dpr, H=c.height=innerHeight*dpr, ctx=c.getContext('2d');
+  const cols=['#E24A34','#1F7A5C','#F2B134','#3B82F6','#FFFFFF','#9B5DE5'];
+  const ps=[...Array(150)].map(()=>({x:W/2+(Math.random()-.5)*W*.4, y:H*.32, vx:(Math.random()-.5)*15*dpr, vy:(-Math.random()*15-7)*dpr,
+    s:(Math.random()*7+5)*dpr, r:Math.random()*6, vr:(Math.random()-.5)*.35, c:cols[Math.random()*cols.length|0]}));
+  const t0=performance.now();
+  (function f(t){ ctx.clearRect(0,0,W,H);
+    ps.forEach(p=>{ p.vy+=.42*dpr; p.x+=p.vx; p.y+=p.vy; p.vx*=.985; p.r+=p.vr;
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.fillStyle=p.c; ctx.fillRect(-p.s/2,-p.s/3,p.s,p.s*.6); ctx.restore(); });
+    if(t-t0<2800) requestAnimationFrame(f); else c.remove(); })(t0);
+}
+function showReaction(e, by){
+  if(!EMOJIS.includes(e)) return;
+  let fx=$('#fx'); if(!fx){ fx=document.createElement('div'); fx.id='fx'; document.body.appendChild(fx); }
+  const el=document.createElement('div'); el.className='float-emoji';
+  el.style.left=(12+Math.random()*76)+'%';
+  el.innerHTML=`<span>${e}</span>${by?`<small>${esc(by)}</small>`:''}`;
+  fx.appendChild(el); setTimeout(()=>el.remove(),2600);
+}
+const myLabel=()=>NET.spectator?'Telão':(S&&S.seat?nameOf(S.seat):(myName||''));
+const reactionsBar=()=>`<div class="reactions">${EMOJIS.map(e=>`<button data-act="react" data-e="${e}" aria-label="Reagir ${e}">${e}</button>`).join('')}</div>`;
+
+/* ======================================================================
+   Ordem combinada, votação e destaques
+   ====================================================================== */
+function planOrder(){
+  const played=new Set(S.table.map(t=>t.seat));
+  const pend=[...Array(S.n)].map((_,i)=>i+1).filter(s=>!played.has(s) && isActiveSeat(s));
+  const plan=(S.plan||[]).filter(s=>pend.includes(s));
+  return plan.concat(pend.filter(s=>!plan.includes(s)));
+}
+function votePanel(){
+  const v=S.vote, mine=v.votes[CID], c=[0,0]; Object.values(v.votes).forEach(i=>c[i]++);
+  const total=S.players.filter(p=>p.on).length;
+  return `<section class="panel vote">
+    <div class="row-between"><h2>Qual tema?</h2><span class="count">${c[0]+c[1]} de ${total} votaram</span></div>
+    ${v.opts.map((pos,i)=>{ const t=themeAt(S,pos); return `<button class="vote-opt ${mine===i?'on':''}" data-act="vote" data-i="${i}" ${NET.spectator?'disabled':''}>
+      <span><strong>${esc(t[0])}</strong><small>1 = ${esc(t[1])} · 100 = ${esc(t[2])}</small></span><em>${c[i]}</em></button>`; }).join('')}
+    ${NET.spectator?'':'<button class="link-btn" data-act="voteEnd">Encerrar votação agora</button>'}
+  </section>`;
+}
+function highlights(game){
+  const logs=(S.log||[]).filter(l=>l.game===game), out=[];
+  const plays=logs.flatMap(l=>l.plays.map(p=>Object.assign({title:l.title},p)));
+  const hinted=plays.filter(p=>p.hint);
+  if(hinted.length){
+    const x=hinted.reduce((a,b)=>Math.abs(b.card-50)>Math.abs(a.card-50)?b:a);
+    out.push({k:'Dica mais ousada', v:`${nameOf(x.seat)} disse “${x.hint}” com ${x.card}`, sub:x.title});
+  }
+  const bad=plays.filter(p=>!p.ok);
+  if(bad.length){
+    const x=bad.reduce((a,b)=>b.card>a.card?b:a);
+    out.push({k:'Maior surpresa', v:`${nameOf(x.seat)} baixou ${x.card} cedo demais${x.hint?` (“${x.hint}”)`:''}`, sub:x.title});
+    const cnt={}; bad.forEach(p=>cnt[p.seat]=(cnt[p.seat]||0)+1);
+    const [seat,n]=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
+    if(n>1) out.push({k:'Furou a fila', v:`${nameOf(+seat)}, ${n} vezes`});
+  } else if(plays.length){
+    out.push({k:'Ninguém furou a fila', v:'Todas as cartas foram na ordem'});
+  }
+  return out;
+}
+function highlightsHtml(){
+  if(S.mode!=='online') return '';
+  const h=highlights(S.game); if(!h.length) return '';
+  return `<div class="highlights">${h.map(x=>`<div class="hl"><p class="eyebrow">${x.k}</p><strong>${esc(x.v)}</strong>${x.sub?`<span>${esc(x.sub)}</span>`:''}</div>`).join('')}</div>`;
+}
+
+/* ---------- Imagem do resumo para compartilhar ---------- */
+async function summaryImage(){
+  try{ await Promise.all(['800 40px "Inter Display"','600 20px Inter','400 20px Inter'].map(f=>document.fonts.load(f))); }catch(e){}
+  const W=1080, H=1350, c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d');
+  const score=S.results.filter(x=>x===1).length, total=S.rounds, pct=score/total;
+  const title=pct===1?'Sintonia perfeita!':pct>=.5?'Mandaram bem!':'Quase lá!';
+  const disp='"Inter Display", Inter, system-ui, sans-serif', body='Inter, system-ui, sans-serif';
+  g.fillStyle='#F5F1EA'; g.fillRect(0,0,W,H);
+  g.fillStyle='#E24A34'; g.fillRect(0,0,W,300);
+  g.fillStyle='#FFF8F2'; g.font=`800 120px ${disp}`; g.textBaseline='alphabetic'; g.fillText('ito',80,190);
+  g.strokeStyle='#FFF8F2'; g.lineWidth=8; g.lineCap='round'; g.beginPath(); g.moveTo(84,232);
+  for(let x=0;x<=150;x+=3) g.lineTo(84+x, 232+Math.sin(x/150*Math.PI*2.2)*10); g.stroke();
+  g.beginPath(); g.arc(240,226,12,0,7); g.fillStyle='#FFF8F2'; g.fill();
+  g.font=`600 34px ${body}`; g.textAlign='right'; g.fillText('Resumo da partida',W-80,150);
+  g.font=`400 28px ${body}`; g.fillText(new Date().toLocaleDateString('pt-BR',{day:'numeric',month:'long'}),W-80,196);
+  g.textAlign='left'; g.fillStyle='#1A1814';
+  g.font=`800 72px ${disp}`; g.fillText(title,80,420);
+  g.font=`800 200px ${disp}`; g.fillText(String(score),80,630);
+  const sw=g.measureText(String(score)).width; g.font=`400 56px ${body}`; g.fillStyle='#6A6258'; g.fillText(`de ${total} rodadas`,80+sw+24,630);
+  const bw=(W-160-(total-1)*10)/total;
+  S.results.forEach((r,i)=>{ g.fillStyle=r?'#1F7A5C':'#E24A34'; roundRect(g,80+i*(bw+10),670,bw,16,8); g.fill(); });
+  let y=770;
+  const hl=S.mode==='online'?highlights(S.game).slice(0,3):[];
+  hl.forEach(h=>{
+    g.fillStyle='#FFFFFF'; roundRect(g,80,y,W-160,150,28); g.fill();
+    g.fillStyle='#6A6258'; g.font=`600 24px ${body}`; g.fillText(h.k.toUpperCase(),116,y+48);
+    g.fillStyle='#1A1814'; g.font=`600 36px ${body}`; g.fillText(fit(g,h.v,W-232),116,y+100);
+    if(h.sub){ g.fillStyle='#6A6258'; g.font=`400 24px ${body}`; g.fillText(fit(g,h.sub,W-232),116,y+134); }
+    y+=172;
+  });
+  const hist=S.history||[];
+  if(hist.length>1 && y<H-200){ g.fillStyle='#6A6258'; g.font=`600 26px ${body}`;
+    g.fillText(fit(g,'Placar da noite: '+hist.map(x=>`P${x.game} ${x.score}/${x.total}`).join(' · '),W-160),80,y+40); }
+  const names=(S.names||[]).filter(Boolean);
+  g.fillStyle='#6A6258'; g.font=`400 26px ${body}`;
+  if(names.length) g.fillText(fit(g,'Com '+names.join(', '),W-160),80,H-120);
+  g.fillStyle='#E24A34'; g.font=`600 28px ${body}`; g.fillText((location.host+location.pathname).replace(/\/$/,''),80,H-70);
+  return new Promise(r=>c.toBlob(r,'image/png'));
+  function roundRect(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+  function fit(g,t,max){ if(g.measureText(t).width<=max) return t; while(t.length>1 && g.measureText(t+'…').width>max) t=t.slice(0,-1); return t+'…'; }
+}
+
+/* ======================================================================
+   Modo telão (TV ou notebook)
+   ====================================================================== */
+function tv(){
+  const st=NET.st; document.body.classList.add('tv');
+  setMeta(`Telão · <b>${st.code}</b>`);
+  const alive=aliveCids(), on=p=>p.on||alive.has(p.cid), hintOf=s=>(st.hints||{})[s]||'';
+  if(st.phase==='lobby'){
+    let qr=''; try{ qr=qrSvg(roomLink(st.code)); }catch(e){}
+    render(`<div class="tv-lobby">
+      <div class="tv-qr">${qr}</div>
+      <div class="tv-info"><p class="eyebrow">Entre na sala</p><div class="tv-code">${st.code}</div>
+        <p class="tv-sub">Aponte a câmera para o QR code ou abra o ito e digite o código.</p>
+        <ul class="tv-players">${st.players.map(p=>`<li class="${on(p)?'':'off'}">${esc(p.name||'Jogador '+p.seat)}</li>`).join('')}</ul>
+        <div class="waiting"><span class="pulse"></span>Esperando o anfitrião começar</div></div>
+    </div>`, false, true);
+    return;
+  }
+  const score=S.results.filter(x=>x===1).length;
+  if(st.phase==='done'){
+    render(`<div class="tv-end"><p class="eyebrow">Fim de jogo</p>
+      <div class="tv-score"><strong>${score}</strong><span>de ${S.rounds}</span></div>${progress()}${highlightsHtml()}${historyList()}</div>${reactionsBar()}`, false, true);
+    return;
+  }
+  const [title,low,high,ci]=theme(), pending=planOrder(), d=deck(), played=new Set(S.table.map(t=>t.seat));
+  const held=S.roundOver?[...Array(S.n)].map((_,i)=>i+1).filter(s=>!played.has(s)).map(s=>({seat:s,card:d[s-1]})):[];
+  const anim=Date.now()<revealAnimUntil, roundOk=S.roundOver && S.table.every(t=>t.ok);
+  render(`<div class="tv-top">${statusTop(score)}</div>
+  <div class="tv-grid">
+    <section class="tv-theme"><p class="eyebrow">${ci<0?'Tema da turma':'Tema · '+CATS[ci].name}</p><h2>${esc(title)}</h2>
+      <div class="scale"><span class="end">1</span><span class="bar"></span><span class="end">100</span></div>
+      <div class="scale-labels"><span>${esc(low)}</span><span>${esc(high)}</span></div>
+      ${S.vote?votePanel():''}
+      ${S.roundOver?`<div class="result big ${roundOk?'good':'bad'}">${roundOk?I.check:I.x}<span>${roundOk?'Ordem perfeita!':'Teve carta fora da ordem'}</span></div>`:''}
+    </section>
+    <section class="tv-table">
+      <h3>Na mesa</h3>
+      ${S.table.length||held.length?`<ol class="pile big ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
+        ${held.map(t=>`<li class="gone"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span><em>saiu</em></li>`).join('')}</ol>`:'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
+      ${pending.length&&!S.roundOver?`<h3>Ordem da turma</h3><ol class="order-list tv">${pending.map((s,i)=>`<li><span class="pos">${S.table.length+i+1}º</span><span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">pensando…</i>'}</span></li>`).join('')}</ol>`:''}
+    </section>
+  </div>`, false, true);
+}
+
+/* ======================================================================
    Menu
    ====================================================================== */
 function openMenu(){
@@ -663,10 +932,11 @@ function openMenu(){
     if(S && (S.history||[]).length) items.push(['showHistory',I.list,'Placar da noite']);
     items.push('hr');
   }
+  items.push(['toggleSound', soundOn?I.sound:I.mute, soundOn?'Sons: ligados':'Sons: desligados']);
   items.push(['rules',I.book,'Como jogar']);
   if(installEvt) items.push(['install',I.download,'Instalar app']);
   items.push(['hardUpdate',I.refresh,'Atualizar app']);
-  if(inRoom){ items.push('hr'); items.push(['leave',I.exit,NET.role==='host'?'Encerrar sala':'Sair da sala','danger']); }
+  if(inRoom){ items.push('hr'); items.push(['leave',I.exit,NET.role==='host'?'Encerrar sala':NET.spectator?'Fechar telão':'Sair da sala','danger']); }
   $('#menuList').innerHTML=items.map(it=>it==='hr'?'<hr>':`<button data-act="${it[0]}" class="${it[3]||''}">${it[1]}<span>${it[2]}</span></button>`).join('');
   $('#versionLabel').textContent=`ito v${VERSION}`;
   $('#menu').showModal();
@@ -689,11 +959,33 @@ const act={
   join(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Código não encontrado. Confira as 8 letras.'; return; } ls.del(LOCAL_KEY); startGuest(p); },
   resume(){
     const online=ls.get(ONLINE_KEY,null), local=ls.get(LOCAL_KEY,null);
-    if(online){ const r=parseCode(online.code); if(r){ online.role==='host'?startHost(r,online.st):startGuest(r,online.st); return; } }
+    if(online){ const r=parseCode(online.code); if(r){ online.role==='host'?startHost(r,online.st):startGuest(r,online.st,online.role==='tv'); return; } }
     if(local){ S=local; history.replaceState(null,'','#'+S.code); game(); return; }
     home();
   },
-  retry(){ startGuest(parseCode(NET.code), NET.st); },
+  retry(){ startGuest(parseCode(NET.code), NET.st, NET.spectator); },
+  joinTv(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Digite o código da sala para abrir o telão.'; return; } ls.del(LOCAL_KEY); startGuest(p,null,true); },
+  saveHint(){ const i=$('#myHint'); if(!i) return; const text=i.value.trim().slice(0,30); i.blur(); sendAct('hint',{text}); toast(text?'Dica enviada':'Dica apagada'); },
+  react(b){ const now=Date.now(); if(now-lastReact<700) return; lastReact=now; const e=b.dataset.e, by=myLabel();
+    showReaction(e, by); SFX.pop(); broadcast({t:'react', e, by, id:Math.random().toString(36).slice(2)}); },
+  voteStart(){ sendAct('voteStart'); },
+  vote(b){ sendAct('vote',{i:+b.dataset.i}); },
+  voteEnd(){ sendAct('voteEnd'); },
+  planMove(b){ const o=planOrder(), seat=+b.dataset.s, i=o.indexOf(seat), j=i+(+b.dataset.d); if(i<0||j<0||j>=o.length) return;
+    [o[i],o[j]]=[o[j],o[i]]; S.plan=o; game(); sendAct('plan',{order:o}); },
+  async revealPlan(){
+    const o=planOrder();
+    if(!await confirmBox('Revelar nessa ordem?', `<ol class="confirm-order">${o.map(s=>`<li>${esc(nameOf(s))}${S.hints[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join('')}</ol>Todas as cartas vão para a mesa nessa sequência.`, 'Revelar')) return;
+    sendAct('reveal',{order:o});
+  },
+  toggleSound(){ soundOn=!soundOn; ls.set('ito-sound',soundOn); if(soundOn){ audio(); SFX.pop(); } toast(soundOn?'Sons ligados':'Sons desligados'); },
+  async shareSummary(){
+    const blob=await summaryImage(); if(!blob){ toast('Não foi possível criar a imagem'); return; }
+    const file=new File([blob],'ito-resumo.png',{type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file], title:'ito', text:'Nosso resumo no ito'}); }catch(e){} return; }
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ito-resumo.png'; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast('Imagem salva');
+  },
   goLocal(){
     const st=NET.st, room=parseCode(NET.code||(P&&P.code));
     netReset(); ls.del(ONLINE_KEY);
@@ -796,7 +1088,10 @@ const act={
         <li>Se alguém baixar uma carta maior que a de outra pessoa que ainda não baixou, o app avisa: <b>fora da ordem</b>.</li>
       </ol>
       <p><b>Criar a sala:</b> escolha quantas rodadas e os assuntos dos temas, e mande o convite (link ou QR code). Cada um coloca o próprio nome, se quiser.</p>
-      <p><b>Tema da turma:</b> antes de alguém baixar, dá para escrever um tema próprio para a rodada.</p>
+      <p><b>Ordem da turma:</b> combinem quem baixa primeiro, arrumem a lista e toquem em <b>Revelar tudo nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
+      <p><b>Dica:</b> escreva a palavra que você falou. Ela aparece na mesa para todos.</p>
+      <p><b>Tema:</b> antes de alguém baixar, dá para trocar, votar entre dois temas ou escrever um tema da turma.</p>
+      <p><b>Telão:</b> uma TV ou notebook pode entrar como mesa, mostrando tudo em tamanho grande.</p>
       <p><b>No final</b> aparece o placar da partida e, se jogarem várias, o placar da noite.</p>`,
       actions:[{label:'Entendi',value:'ok',cls:'brand'}]});
   },
@@ -805,7 +1100,7 @@ const act={
       if(!await confirmBox('Encerrar a sala?','A sala acaba para todo mundo.','Encerrar')) return;
       broadcast({t:'closed'}); await new Promise(r=>setTimeout(r,250));
     } else if(NET.role==='guest'){
-      if(NET.st && NET.st.phase!=='lobby' && !await confirmBox('Sair da sala?','Você pode voltar depois pelo mesmo link.','Sair')) return;
+      if(!NET.spectator && NET.st && NET.st.phase!=='lobby' && !await confirmBox('Sair da sala?','Você pode voltar depois pelo mesmo link.','Sair')) return;
       if(NET.st) sendToCid(NET.st.hostCid,{t:'bye'}); await new Promise(r=>setTimeout(r,150));
     } else if(S && S.status==='play' && !await confirmBox('Sair da sala?','O progresso desta partida será apagado deste celular.','Sair')) return;
     netReset(); ls.del(ONLINE_KEY); ls.del(LOCAL_KEY); S=null; P=null;
@@ -830,6 +1125,7 @@ async function hardUpdate(){
 
 /* ---------- Eventos ---------- */
 document.addEventListener('click',e=>{
+  if(soundOn && !actx) audio();
   const b=e.target.closest('[data-act]'); if(!b) return;
   const menu=$('#menu'); if(menu.open && menu.contains(b)) menu.close();
   const fn=act[b.dataset.act]; if(fn){ e.preventDefault(); fn(b); }
@@ -858,7 +1154,7 @@ if('serviceWorker' in navigator){
 (function start(){
   if(location.search) history.replaceState(null,'',location.pathname+location.hash);
   const h=parseHash(location.hash), online=ls.get(ONLINE_KEY,null), local=ls.get(LOCAL_KEY,null);
-  if(h && online && online.code===h.code){ online.role==='host'?startHost(h,online.st):startGuest(h,online.st); }
+  if(h && online && online.code===h.code){ online.role==='host'?startHost(h,online.st):startGuest(h,online.st,online.role==='tv'); }
   else if(h && local && local.code===h.code){ S=local; game(); }
   else if(h){ ls.del(LOCAL_KEY); startGuest(h); }
   else home();

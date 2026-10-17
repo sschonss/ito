@@ -9,7 +9,13 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 - Quem cria a sala é o **anfitrião**: escolhe jogadores, rodadas e categorias, e manda o convite (link, QR code ou código de 8 letras).
 - Cada pessoa coloca o próprio nome, se quiser. O anfitrião pode mudar a ordem ou tirar alguém da sala.
 - A cada rodada cada um recebe uma carta de 1 a 100. Quando achar que é a sua vez, toca em **Baixar minha carta**. O app mostra a mesa para todos e avisa quando uma carta sai **fora da ordem**.
-- Antes de alguém baixar, dá para **trocar o tema** ou **escrever um tema da turma**.
+- **Ordem da turma:** a turma arruma no app quem baixa primeiro, segundo, terceiro… e toca em **Revelar tudo nessa ordem**. O app vira as cartas em sequência e confere sozinho (ninguém digita número, então não tem como errar ou mentir).
+- **Dica escrita:** cada um escreve a palavra que falou; ela aparece na mesa ao lado da carta.
+- Antes de alguém baixar, dá para **trocar o tema**, **votar entre dois temas** ou **escrever um tema da turma**.
+- **Reações** com emoji aparecem na tela de todos.
+- **Modo telão:** uma TV ou notebook entra como mesa (sem carta) e mostra QR code, tema, cartas e dicas em tamanho grande.
+- **Confete e sons** (gerados no próprio app, com opção de desligar no menu).
+- **Resumo para compartilhar:** imagem com placar e destaques da partida, pronta para o WhatsApp.
 - No fim aparece o placar da partida e o **placar da noite**.
 - Se o anfitrião cair, o próximo jogador conectado assume sozinho. Se ele voltar, entra como jogador.
 - **Plano B:** sem internet, ou se ninguém conseguir conectar, dá para jogar em "modo sem conexão" (todos apertam Acertamos/Erramos juntos).
