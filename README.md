@@ -6,11 +6,11 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 
 ## Como funciona
 
-- Quem cria a sala escolhe o número de jogadores, quantas rodadas, as categorias de tema e, se quiser, os nomes da turma.
-- A cada rodada cada pessoa recebe **uma carta** de 1 a 100 e um tema em comum.
-- O convite (link ou código de 8 letras) leva tudo isso. Os nomes só vão pelo link.
-- Ao fim de cada rodada, todos apertam o mesmo botão (**Acertamos** ou **Erramos**). No final aparece o placar.
-- Se algum celular ficar diferente, use **Menu → Corrigir rodada**.
+- Quem cria a sala é o **anfitrião**: escolhe jogadores, rodadas e categorias, e manda o convite (link ou código de 8 letras).
+- Os celulares se conectam direto entre si (WebRTC, via [Trystero](https://github.com/dmotz/trystero) com sinalização pela rede Nostr). Não há servidor próprio.
+- O anfitrião distribui os lugares (ninguém pega o mesmo número) e mostra quem está na sala. Cada pessoa coloca o próprio nome, se quiser.
+- Qualquer pessoa marca **Acertamos**, **Erramos** ou **Trocar tema**, e todos os celulares mudam juntos. No final aparece o placar.
+- **Plano B:** se não conectar, ou se o anfitrião sair, dá para seguir em "modo sem conexão". O código da sala gera as mesmas cartas em todos os celulares e todos apertam o mesmo botão ao fim da rodada.
 
 ## PWA
 
