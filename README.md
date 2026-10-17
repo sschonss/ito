@@ -6,10 +6,11 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 
 ## Como funciona
 
-- Não há servidor. O código da sala (ex.: `PATO-4`) é uma semente: todos os celulares calculam as mesmas cartas e os mesmos temas, mas cada pessoa vê só as suas.
-- A conversa acontece ao vivo ou por chamada de voz.
-- Ao fim de cada rodada, todos apertam o mesmo botão (**Acertamos** ou **Erramos**), e os celulares continuam sincronizados.
-- Se algum celular ficar diferente, use **Menu → Ajustar sincronia**.
+- Quem cria a sala escolhe o número de jogadores, quantas rodadas, as categorias de tema e, se quiser, os nomes da turma.
+- A cada rodada cada pessoa recebe **uma carta** de 1 a 100 e um tema em comum.
+- O convite (link ou código de 8 letras) leva tudo isso. Os nomes só vão pelo link.
+- Ao fim de cada rodada, todos apertam o mesmo botão (**Acertamos** ou **Erramos**). No final aparece o placar.
+- Se algum celular ficar diferente, use **Menu → Corrigir rodada**.
 
 ## PWA
 

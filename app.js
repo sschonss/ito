@@ -1,6 +1,6 @@
 'use strict';
-const VERSION = '1.0.2';
-const MAX_LEVEL = 3, LIVES = 3, STORE = 'ito-state';
+const VERSION = '1.1.0';
+const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
 const CATS = [
@@ -62,58 +62,72 @@ const I = {
 };
 
 /* ---------- Estado ---------- */
-let S = null;          // jogo atual
-let P = null;          // sala escolhida, antes de escolher o assento
-let draftPlayers = 4;
+let S = null;                 // partida atual
+let P = null;                 // sala aberta, antes de escolher quem é você
+const draft = { players:4, rounds:5, mask:ALL_MASK, names:[] };
 let peek = false;
 let installEvt = null;
 let swReg = null;
-let draftMask = ALL_MASK;
 
 const $ = s => document.querySelector(s);
 const view = $('#view');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function save(){ try{ localStorage.setItem(STORE, JSON.stringify(S)); }catch(e){} }
 function load(){ try{ const v = JSON.parse(localStorage.getItem(STORE)); return v && v.code ? v : null; }catch(e){ return null; } }
 function clearSaved(){ try{ localStorage.removeItem(STORE); }catch(e){} }
 
-/* ---------- Aleatoriedade determinística (todos os celulares calculam igual) ---------- */
+/* ---------- Sorteio igual em todos os celulares ---------- */
 function xmur3(s){let h=1779033703^s.length;for(let i=0;i<s.length;i++){h=Math.imul(h^s.charCodeAt(i),3432918353);h=h<<13|h>>>19}return()=>{h=Math.imul(h^h>>>16,2246822507);h=Math.imul(h^h>>>13,3266489909);return(h^=h>>>16)>>>0}}
 function mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 const rng = s => mulberry(xmur3(s)());
 function shuffle(arr, r){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
 
-/* Código da sala: ABCD-4 (todas as categorias) ou ABCD-4-1F (categorias escolhidas, em hexadecimal) */
-function parseCode(s){
-  s = (s||'').trim().toUpperCase().replace(/\s/g,'');
-  const m = /^([A-Z]{4})-?(\d{1,2})(?:-([0-9A-F]{2}))?$/.exec(s);
-  if(!m) return null;
-  const n = +m[2];
-  if(n<2 || n>10) return null;
-  const mask = m[3] ? parseInt(m[3],16) & ALL_MASK : ALL_MASK;
-  if(!mask) return null;
-  return { code: m[1]+'-'+n+(mask===ALL_MASK?'':'-'+mask.toString(16).toUpperCase().padStart(2,'0')), n, mask };
+/* ---------- Código da sala: ABCD-EFGH
+   ABCD = sorteio da sala · EFGH = jogadores, rodadas e categorias ---------- */
+const L24 = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+function enc(n, rounds, mask){
+  let v = ((n-2)*MAX_ROUNDS + (rounds-1))*256 + mask, s='';
+  for(let i=0;i<4;i++){ s = L24[v%24] + s; v = Math.floor(v/24); }
+  return s;
 }
-function newCode(n, mask){
-  const L='ABCDEFGHJKLMNPQRSTUVWXYZ', v=new Uint32Array(4);
-  crypto.getRandomValues(v);
-  return parseCode([...v].map(x=>L[x%L.length]).join('')+'-'+n+'-'+mask.toString(16).padStart(2,'0'));
+function parseCode(raw){
+  const s = (raw||'').trim().toUpperCase().replace(/[^A-Z]/g,'');
+  if(s.length!==8 || [...s].some(c=>!L24.includes(c))) return null;
+  let v=0; for(const c of s.slice(4)) v = v*24 + L24.indexOf(c);
+  const mask = v%256; v = Math.floor(v/256);
+  const rounds = v%MAX_ROUNDS + 1; const n = Math.floor(v/MAX_ROUNDS) + 2;
+  if(n<2 || n>10 || !(mask & ALL_MASK)) return null;
+  return { code: s.slice(0,4)+'-'+s.slice(4), n, rounds, mask: mask & ALL_MASK, names: [] };
 }
+function parseHash(h){
+  const parts = h.replace(/^#/,'').split('~');
+  const room = parseCode(decodeURIComponent(parts[0]||''));
+  if(!room) return null;
+  room.names = parts.slice(1, room.n+1).map(x=>{ try{ return decodeURIComponent(x).trim().slice(0,20); }catch(e){ return ''; } });
+  return room;
+}
+function newRoom(){
+  const v = new Uint32Array(4); crypto.getRandomValues(v);
+  const room = parseCode([...v].map(x=>L24[x%24]).join('') + enc(draft.players, draft.rounds, draft.mask));
+  room.names = draft.names.slice(0, draft.players).map(s=>(s||'').trim().slice(0,20));
+  return room;
+}
+const roomHash = r => '#' + r.code + (r.names.some(Boolean) ? '~' + r.names.map(encodeURIComponent).join('~') : '');
+const roomLink = r => location.origin + location.pathname + roomHash(r);
+const nameOf = (r, p) => (r.names && r.names[p-1]) || `Jogador ${p}`;
 const catNames = mask => mask===ALL_MASK ? 'Todas as categorias' : CATS.filter((_,i)=>mask&(1<<i)).map(c=>c.name).join(' · ');
-function hands(){
-  const deck = shuffle([...Array(100)].map((_,i)=>i+1), rng(S.code+'|deal|'+S.round));
-  const k = S.level, out = [];
-  for(let p=0;p<S.n;p++) out.push(deck.slice(p*k,p*k+k).sort((a,b)=>a-b));
-  return out;
+
+function cards(){
+  const deck = shuffle([...Array(100)].map((_,i)=>i+1), rng(S.code+'|'+S.game+'|'+S.round));
+  return deck.slice(0, S.n);           // carta de cada jogador, na ordem 1..n
 }
 function theme(){
-  const mask = parseCode(S.code).mask;
-  const order = shuffle(THEMES.map((t,i)=>[t,i]).filter(([t])=>mask&(1<<t[3])).map(([,i])=>i), rng(S.code+'|themes'));
+  const order = shuffle(THEMES.map((t,i)=>[t,i]).filter(([t])=>S.mask&(1<<t[3])).map(([,i])=>i), rng(S.code+'|themes'));
   return THEMES[order[S.themePos % order.length]];
 }
-const roomLink = code => location.origin + location.pathname + '#' + code;
 
-/* ---------- UI helpers ---------- */
+/* ---------- Componentes ---------- */
 let toastTimer;
 function toast(msg){
   const t=$('#toast'); t.textContent=msg; t.classList.add('show');
@@ -130,8 +144,8 @@ function dialog({title, body, actions}){
     d.showModal();
   });
 }
-const confirmBox = (title, body, ok='Confirmar', cls='brand') =>
-  dialog({title, body:`<p>${body}</p>`, actions:[{label:'Cancelar',value:'no'},{label:ok,value:'ok',cls}]}).then(v=>v==='ok');
+const confirmBox = (title, body, ok='Confirmar') =>
+  dialog({title, body:`<p>${body}</p>`, actions:[{label:'Cancelar',value:'no'},{label:ok,value:'ok',cls:'brand'}]}).then(v=>v==='ok');
 
 function setMeta(html){ $('#appbarMeta').innerHTML = html||''; }
 function render(html, dock, keep){
@@ -139,12 +153,20 @@ function render(html, dock, keep){
   view.innerHTML = html;
   if(!keep) window.scrollTo({top:0});
 }
+const stepper = (key, val, min, max, unit) => `<div class="stepper">
+  <button data-act="step" data-k="${key}" data-d="-1" aria-label="Menos" ${val<=min?'disabled':''}>−</button>
+  <div class="val"><strong>${val}</strong><span>${unit}</span></div>
+  <button data-act="step" data-k="${key}" data-d="1" aria-label="Mais" ${val>=max?'disabled':''}>+</button></div>`;
+const svgStroke = svg => svg.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"');
 
-/* ---------- Telas ---------- */
+/* ---------- Tela inicial ---------- */
 function home(keep){
   const typed = keep && $('#code') ? $('#code').value : '';
   S=null; P=null; setMeta('');
   const saved=load();
+  let nameFields=''; for(let i=0;i<draft.players;i++)
+    nameFields+=`<input class="name-input" data-i="${i}" value="${esc(draft.names[i]||'')}" placeholder="Jogador ${i+1}" maxlength="20" autocomplete="off" enterkeyhint="next">`;
+
   render(`
   <section class="hero">
     <p class="eyebrow">Jogo cooperativo</p>
@@ -154,106 +176,144 @@ function home(keep){
 
   ${saved?`<button class="resume" data-act="resume">
     <span class="dot"></span>
-    <span><strong>Continuar partida</strong><span>Sala ${saved.code} · jogador ${saved.seat} · rodada ${saved.round}</span></span>
-    ${I.chevron}</button>`:''}
+    <span><strong>Continuar partida</strong><span>${esc(nameOf(saved,saved.seat))} · rodada ${Math.min(saved.round,saved.rounds)} de ${saved.rounds}</span></span>
+    ${svgStroke(I.chevron)}</button>`:''}
 
   ${installEvt?`<div class="install"><p>Coloque o ito na tela inicial e abra como um app.</p><button class="btn brand" data-act="install">Instalar</button></div>`:''}
 
   <section class="panel">
     <h2>Criar sala</h2>
-    <p class="lead">Escolha quantas pessoas vão jogar.</p>
-    <div class="stepper">
-      <button data-act="dec" aria-label="Menos" ${draftPlayers<=2?'disabled':''}>−</button>
-      <div class="val"><strong id="np">${draftPlayers}</strong><span>jogadores</span></div>
-      <button data-act="inc" aria-label="Mais" ${draftPlayers>=10?'disabled':''}>+</button>
+    <p class="lead">Escolha como vai ser a partida.</p>
+
+    <div class="field-group">
+      <span class="label">Jogadores</span>
+      ${stepper('players', draft.players, 2, 10, draft.players===1?'jogador':'jogadores')}
+      <details class="names" ${draft.names.some(Boolean)?'open':''}>
+        <summary>Colocar nomes <span>opcional</span></summary>
+        <div class="name-list">${nameFields}</div>
+      </details>
     </div>
-    <div class="cat-head"><span class="label">Categorias de tema</span>
-      <button class="link-btn" data-act="allCats">${draftMask===ALL_MASK?'Limpar':'Todas'}</button></div>
-    <div class="cats">${CATS.map((c,i)=>`<button class="cat ${draftMask&(1<<i)?'on':''}" data-act="toggleCat" data-v="${i}" aria-pressed="${!!(draftMask&(1<<i))}">${c.name}<small>${c.themes.length}</small></button>`).join('')}</div>
-    <button class="btn brand" data-act="create" ${draftMask?'':'disabled'}>Criar sala</button>
+
+    <div class="field-group">
+      <span class="label">Rodadas</span>
+      ${stepper('rounds', draft.rounds, MIN_ROUNDS, MAX_ROUNDS, draft.rounds===1?'rodada':'rodadas')}
+    </div>
+
+    <div class="field-group">
+      <div class="cat-head"><span class="label">Categorias de tema</span>
+        <button class="link-btn" data-act="allCats">${draft.mask===ALL_MASK?'Limpar':'Todas'}</button></div>
+      <div class="cats">${CATS.map((c,i)=>`<button class="cat ${draft.mask&(1<<i)?'on':''}" data-act="toggleCat" data-v="${i}" aria-pressed="${!!(draft.mask&(1<<i))}">${c.name}<small>${c.themes.length}</small></button>`).join('')}</div>
+    </div>
+
+    <button class="btn brand" data-act="create" ${draft.mask?'':'disabled'}>Criar sala</button>
   </section>
 
   <section class="panel">
     <h2>Entrar numa sala</h2>
-    <p class="lead">Digite o código que recebeu.</p>
-    <input id="code" class="field" placeholder="ABCD-4" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="10" enterkeyhint="go">
+    <p class="lead">Abra o link do convite ou digite o código.</p>
+    <input id="code" class="field" placeholder="ABCD-EFGH" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" enterkeyhint="go">
     <p class="err" id="err"></p>
     <button class="btn" data-act="join">Entrar</button>
   </section>
 
   <div class="foot"><button data-act="rules">Como jogar</button>·<button data-act="hardUpdate">Atualizar app</button></div>`, false, keep);
+
   const input=$('#code'); input.value=typed;
   input.addEventListener('keydown',e=>{ if(e.key==='Enter') act.join(); });
-  input.addEventListener('input',()=>{ $('#err').textContent=''; });
+  input.addEventListener('input',()=>{
+    $('#err').textContent='';
+    const raw=input.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,8);
+    input.value = raw.length>4 ? raw.slice(0,4)+'-'+raw.slice(4) : raw;
+  });
+  view.querySelectorAll('.name-input').forEach(el=>{
+    el.addEventListener('input',()=>{ draft.names[+el.dataset.i]=el.value; });
+    el.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); const nx=el.nextElementSibling; nx?nx.focus():el.blur(); } });
+  });
+  const det=view.querySelector('details.names');
+  det && det.addEventListener('toggle',()=>{ if(det.open && !keep){ const f=det.querySelector('input'); f && f.focus(); } });
 }
 
+/* ---------- Escolher quem é você ---------- */
 function seatScreen(){
   setMeta(`Sala <b>${P.code}</b>`);
-  let seats=''; for(let i=1;i<=P.n;i++) seats+=`<button data-act="seat" data-v="${i}">${i}</button>`;
+  const hasNames=P.names.some(Boolean);
+  let seats=''; for(let i=1;i<=P.n;i++){
+    seats += hasNames
+      ? `<button class="player" data-act="seat" data-v="${i}"><span class="num">${i}</span><span class="nm">${esc(nameOf(P,i))}</span>${svgStroke(I.chevron)}</button>`
+      : `<button data-act="seat" data-v="${i}">${i}</button>`;
+  }
   render(`
   <section class="panel room-code">
     <p class="eyebrow">Código da sala</p>
     <div class="code">${P.code}</div>
-    <p class="room-cats">${catNames(P.mask)}</p>
+    <p class="room-info">${P.n} jogadores · ${P.rounds} ${P.rounds===1?'rodada':'rodadas'}<br>${catNames(P.mask)}</p>
     <div class="btn-row">
-      <button class="btn soft" data-act="copy">${I.copy.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="2"')}Copiar</button>
-      <button class="btn brand" data-act="share">${I.share.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="2"')}Convidar</button>
+      <button class="btn soft" data-act="copy">${svgStroke(I.copy)}Copiar link</button>
+      <button class="btn brand" data-act="share">${svgStroke(I.share)}Convidar</button>
     </div>
   </section>
   <section class="panel">
     <h2>Quem é você?</h2>
-    <p class="lead">Cada pessoa escolhe um número diferente. Combinem antes de começar.</p>
-    <div class="seats">${seats}</div>
+    <p class="lead">${hasNames?'Toque no seu nome.':'Cada pessoa escolhe um número diferente. Combinem antes de começar.'}</p>
+    <div class="${hasNames?'players':'seats'}">${seats}</div>
   </section>
   <button class="btn text" data-act="goHome">Voltar</button>`);
 }
 
-function hearts(){
-  let h=''; for(let i=0;i<LIVES;i++) h+=I.heart.replace('<svg',`<svg class="${i<S.lives?'on':'off'}"`);
-  return `<div class="lives" aria-label="${S.lives} vidas">${h}</div>`;
-}
-function levels(){
-  let l=''; for(let i=1;i<=MAX_LEVEL;i++) l+=`<i class="${i<=S.level?'on':''}"></i>`;
-  return `<span class="levels">${l}</span>`;
+/* ---------- Jogo ---------- */
+function progress(){
+  let d=''; for(let i=0;i<S.rounds;i++){
+    const r=S.results[i];
+    d+=`<i class="${r===1?'ok':r===0?'no':i===S.results.length?'now':''}"></i>`;
+  }
+  return `<div class="progress" aria-hidden="true">${d}</div>`;
 }
 
 function game(){
-  setMeta(`Sala <b>${S.code}</b> · jogador ${S.seat}`);
-  const status=`<div class="statusbar">
-    <span class="pill"><span class="k">Rodada</span>${S.round}</span>
-    <span class="pill"><span class="k">Nível</span>${S.level}${levels()}</span>
-    ${hearts()}</div>`;
+  setMeta(`<b>${esc(nameOf(S,S.seat))}</b> · ${S.code}`);
+  const score = S.results.filter(x=>x===1).length;
 
-  if(S.status==='won' || S.status==='lost'){
-    const won=S.status==='won';
-    render(`${status}<section class="panel end-state">
-      <div class="badge">${won?I.trophy:I.broken}</div>
-      <h2>${won?'Vocês venceram!':'Acabaram as vidas'}</h2>
-      <p>${won?`Todos os ${MAX_LEVEL} níveis concluídos. Sintonia total.`:`Vocês chegaram ao nível ${S.level}. Bora tentar de novo?`}</p>
-      <button class="btn brand" data-act="restart">Jogar de novo</button>
+  if(S.status==='done'){
+    const total=S.rounds, pct=score/total;
+    const [title,msg] = pct===1 ? ['Sintonia perfeita!','Vocês acertaram todas as rodadas.']
+      : pct>=.5 ? ['Mandaram bem!','Boa leitura de tema, turma.'] : ['Quase lá!','Bora mais uma partida?'];
+    render(`<section class="panel end-state">
+      <div class="badge">${pct>=.5?I.trophy:I.broken}</div>
+      <p class="eyebrow">Fim de jogo</p>
+      <h2>${title}</h2>
+      <div class="score"><strong>${score}</strong><span>de ${total}</span></div>
+      <p>${msg}</p>
+      ${progress()}
+      <div class="stack">
+        <button class="btn brand" data-act="restart">Jogar de novo</button>
+        <button class="btn outline" data-act="leave">Nova sala</button>
+      </div>
     </section>`);
     return;
   }
 
-  const [title, low, high, ci]=theme(), mine=hands()[S.seat-1];
-  const cards=mine.map(c=>`<button class="card ${peek?'up':''}" data-act="peek" aria-label="${peek?'Carta '+c:'Carta escondida'}">
-      <span class="face back">${I.thread}</span>
-      <span class="face front"><small class="tl">${c}</small><strong>${c}</strong><small class="br">${c}</small></span>
-    </button>`).join('');
-
-  render(`${status}
+  const [title, low, high, ci]=theme(), mine=cards()[S.seat-1];
+  render(`
+  <div class="statusbar">
+    <span class="pill"><span class="k">Rodada</span>${S.round}<span class="k">de ${S.rounds}</span></span>
+    <span class="pill score-pill">${I.check}${score}</span>
+  </div>
+  ${progress()}
   <section class="panel theme">
-    <div class="theme-top">
-      <p class="eyebrow">Tema · ${CATS[ci].name}</p>
-    </div>
+    <p class="eyebrow">Tema · ${CATS[ci].name}</p>
     <h2>${title}</h2>
     <div class="scale"><span class="end">1</span><span class="bar"></span><span class="end">100</span></div>
     <div class="scale-labels"><span>${low}</span><span>${high}</span></div>
-    <div class="theme-actions"><button class="chip" data-act="skip">${I.shuffle}Trocar tema</button></div>
+    <div class="theme-actions"><button class="chip" data-act="skip">${svgStroke(I.shuffle)}Trocar tema</button></div>
   </section>
-  <div class="hand">${cards}</div>
+  <div class="hand">
+    <button class="card ${peek?'up':''}" data-act="peek" aria-label="${peek?'Sua carta: '+mine:'Carta escondida'}">
+      <span class="face back">${I.thread}</span>
+      <span class="face front"><small class="tl">${mine}</small><strong>${mine}</strong><small class="br">${mine}</small></span>
+    </button>
+  </div>
   <p class="hint">${peek?'Toque para esconder':'Toque na carta para ver seu número'}</p>
-  <button class="btn outline" data-act="reveal">${I.eye.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="2"')}Conferir cartas de todos</button>
+  <button class="btn outline" data-act="reveal">${svgStroke(I.eye)}Conferir cartas de todos</button>
   <div class="dock"><div class="dock-inner">
     <p class="note">Todos apertam o mesmo botão ao fim da rodada</p>
     <div class="btn-row">
@@ -263,22 +323,26 @@ function game(){
   </div></div>`, true);
 }
 
-function next(){ S.round++; S.themePos++; peek=false; save(); game(); }
+function finishRound(ok){
+  S.results.push(ok?1:0);
+  peek=false;
+  if(S.results.length>=S.rounds){ S.status='done'; save(); game(); return; }
+  S.round++; S.themePos++; save(); game();
+  toast(ok?'Boa! Próxima rodada':'Faz parte. Próxima rodada');
+}
 
 /* ---------- Menu ---------- */
 function openMenu(){
-  const inGame=!!S;
-  const items=[];
-  if(inGame){
+  const inGame=!!S && S.status==='play', items=[];
+  if(S){
     items.push(['share',I.share,'Convidar para a sala']);
-    items.push(['reveal',I.eye,'Conferir cartas de todos']);
-    items.push(['syncBox',I.sliders,'Corrigir rodada']);
+    if(inGame){ items.push(['reveal',I.eye,'Conferir cartas de todos']); items.push(['syncBox',I.sliders,'Corrigir rodada']); }
     items.push('hr');
   }
   items.push(['rules',I.book,'Como jogar']);
   if(installEvt) items.push(['install',I.download,'Instalar app']);
   items.push(['hardUpdate',I.refresh,'Atualizar app']);
-  if(inGame){ items.push('hr'); items.push(['leave',I.exit,'Sair da sala','danger']); }
+  if(S){ items.push('hr'); items.push(['leave',I.exit,'Sair da sala','danger']); }
   $('#menuList').innerHTML=items.map(it=>it==='hr'?'<hr>':`<button data-act="${it[0]}" class="${it[3]||''}">${it[1]}<span>${it[2]}</span></button>`).join('');
   $('#versionLabel').textContent=`ito v${VERSION}`;
   $('#menu').showModal();
@@ -286,32 +350,37 @@ function openMenu(){
 
 /* ---------- Ações ---------- */
 const act = {
-  goHome(){ if(S){ return; } history.replaceState(null,'',location.pathname); home(); },
+  goHome(){ if(S) return; history.replaceState(null,'',location.pathname); home(); },
   openMenu,
-  inc(){ draftPlayers=Math.min(10,draftPlayers+1); home(true); },
-  dec(){ draftPlayers=Math.max(2,draftPlayers-1); home(true); },
-  toggleCat(b){ draftMask^=(1<<+b.dataset.v); home(true); },
-  allCats(){ draftMask = draftMask===ALL_MASK ? 0 : ALL_MASK; home(true); },
-  create(){ if(!draftMask) return; P=newCode(draftPlayers, draftMask); history.replaceState(null,'','#'+P.code); seatScreen(); },
+  step(b){
+    const k=b.dataset.k, d=+b.dataset.d;
+    if(k==='players') draft.players=Math.min(10,Math.max(2,draft.players+d));
+    if(k==='rounds') draft.rounds=Math.min(MAX_ROUNDS,Math.max(MIN_ROUNDS,draft.rounds+d));
+    home(true);
+  },
+  toggleCat(b){ draft.mask^=(1<<+b.dataset.v); home(true); },
+  allCats(){ draft.mask = draft.mask===ALL_MASK ? 0 : ALL_MASK; home(true); },
+  create(){ if(!draft.mask) return; P=newRoom(); history.replaceState(null,'',roomHash(P)); seatScreen(); },
   join(){
     const p=parseCode($('#code').value);
-    if(!p){ $('#err').textContent='Código inválido. Use o formato ABCD-4.'; return; }
-    P=p; history.replaceState(null,'','#'+P.code); seatScreen();
+    if(!p){ $('#err').textContent='Código não encontrado. Confira as 8 letras.'; return; }
+    P=p; history.replaceState(null,'',roomHash(P)); seatScreen();
   },
-  resume(){ S=load(); if(!S) return home(); history.replaceState(null,'','#'+S.code); peek=false; game(); },
+  resume(){ S=load(); if(!S) return home(); history.replaceState(null,'',roomHash(S)); peek=false; game(); },
   seat(b){
-    S={code:P.code,n:P.n,seat:+b.dataset.v,round:1,level:1,lives:LIVES,themePos:0,status:'play',v:1};
+    S={code:P.code, n:P.n, rounds:P.rounds, mask:P.mask, names:P.names, seat:+b.dataset.v,
+       game:1, round:1, results:[], themePos:0, status:'play'};
     peek=false; save(); game();
   },
   async copy(){
-    const code=(S||P).code;
-    try{ await navigator.clipboard.writeText(roomLink(code)); toast('Link da sala copiado'); }
-    catch(e){ toast('Código: '+code); }
+    const r=S||P;
+    try{ await navigator.clipboard.writeText(roomLink(r)); toast('Link copiado'); }
+    catch(e){ toast('Código da sala: '+r.code); }
   },
   async share(){
-    const code=(S||P).code, url=roomLink(code);
+    const r=S||P;
     if(navigator.share){
-      try{ await navigator.share({title:'ito', text:`Bora jogar ito! Sala ${code}`, url}); }catch(e){}
+      try{ await navigator.share({title:'ito', text:`Bora jogar ito! Código da sala: ${r.code}`, url:roomLink(r)}); }catch(e){}
       return;
     }
     act.copy();
@@ -322,52 +391,46 @@ const act = {
     $('.hint').textContent=peek?'Toque para esconder':'Toque na carta para ver seu número';
   },
   async reveal(){
-    const ok=await confirmBox('Mostrar todas as cartas?','Façam isso só depois de baixar as cartas, para conferir a ordem.','Mostrar');
-    if(!ok) return;
-    const list=hands().flatMap((c,p)=>c.map(v=>({v,p:p+1}))).sort((a,b)=>a.v-b.v);
+    if(!await confirmBox('Mostrar todas as cartas?','Façam isso só depois de baixar as cartas, para conferir a ordem.','Mostrar')) return;
+    const list=cards().map((v,i)=>({v,p:i+1})).sort((a,b)=>a.v-b.v);
     dialog({title:`Rodada ${S.round}`, body:`<ul class="thread-list">${list.map(x=>
-      `<li class="${x.p===S.seat?'me':''}"><span>Jogador ${x.p}${x.p===S.seat?' (você)':''}</span><strong>${x.v}</strong></li>`).join('')}</ul>`,
+      `<li class="${x.p===S.seat?'me':''}"><span>${esc(nameOf(S,x.p))}${x.p===S.seat?' (você)':''}</span><strong>${x.v}</strong></li>`).join('')}</ul>`,
       actions:[{label:'Fechar',value:'ok',cls:'brand'}]});
   },
-  win(){
-    if(S.level>=MAX_LEVEL){ S.status='won'; save(); game(); return; }
-    S.level++; toast(`Nível ${S.level}: ${S.level} cartas para cada`); next();
-  },
-  lose(){
-    S.lives--;
-    if(S.lives<=0){ S.lives=0; S.status='lost'; save(); game(); return; }
-    toast(`${S.lives} ${S.lives===1?'vida restante':'vidas restantes'}`); next();
-  },
+  win(){ finishRound(true); },
+  lose(){ finishRound(false); },
   skip(){ S.themePos++; save(); game(); },
-  restart(){ S.level=1; S.lives=LIVES; S.status='play'; next(); },
+  restart(){ S.game++; S.round=1; S.results=[]; S.themePos++; S.status='play'; peek=false; save(); game(); },
   async syncBox(){
+    const score=S.results.filter(x=>x===1).length;
     const v=await dialog({title:'Corrigir rodada', body:`<p>Alguém ficou com a rodada ou o tema diferente? Copie aqui os números do celular de outra pessoa.</p>
       <div class="grid2">
-        <label>Rodada<input id="sr" type="number" inputmode="numeric" min="1" value="${S.round}"></label>
-        <label>Nível<input id="sl" type="number" inputmode="numeric" min="1" max="${MAX_LEVEL}" value="${S.level}"></label>
-        <label>Vidas<input id="sv" type="number" inputmode="numeric" min="1" max="${LIVES}" value="${S.lives||1}"></label>
+        <label>Rodada<input id="sr" type="number" inputmode="numeric" min="1" max="${S.rounds}" value="${S.round}"></label>
+        <label>Acertos<input id="sa" type="number" inputmode="numeric" min="0" value="${score}"></label>
         <label>Nº do tema<input id="st" type="number" inputmode="numeric" min="0" value="${S.themePos}"></label>
+        <label>Partida<input id="sg" type="number" inputmode="numeric" min="1" value="${S.game}"></label>
       </div>`, actions:[{label:'Cancelar',value:'no'},{label:'Aplicar',value:'ok',cls:'brand'}]});
     if(v!=='ok') return;
     const n=id=>parseInt($('#'+id).value,10)||0, clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
-    S.round=clamp(n('sr'),1,99999); S.level=clamp(n('sl'),1,MAX_LEVEL); S.lives=clamp(n('sv'),1,LIVES); S.themePos=clamp(n('st'),0,99999);
+    const round=clamp(n('sr'),1,S.rounds), hits=clamp(n('sa'),0,round-1);
+    S.round=round; S.results=[...Array(round-1)].map((_,i)=>i<hits?1:0);
+    S.themePos=clamp(n('st'),0,99999); S.game=clamp(n('sg'),1,99999);
     S.status='play'; peek=false; save(); game(); toast('Pronto, tudo certo');
   },
   rules(){
     dialog({title:'Como jogar', body:`
       <ol>
-        <li>Cada pessoa recebe, em segredo, carta(s) de <b>1 a 100</b>.</li>
+        <li>A cada rodada, cada pessoa recebe <b>uma carta</b> secreta de <b>1 a 100</b>.</li>
         <li>Leiam o <b>tema</b>. Cada um descreve sua carta com algo do tema, sem dizer o número. Ex.: no tema “Comidas”, quem tem 95 pode dizer “pizza”.</li>
         <li>Baixem as cartas em <b>ordem crescente</b>, uma por vez, falando o número em voz alta.</li>
-        <li>Se alguém baixar uma carta maior que outra ainda na mão, vocês erraram.</li>
+        <li>Se a ordem saiu certinha, vocês acertaram. Se alguém baixou fora da ordem, erraram.</li>
       </ol>
-      <p>Nível 1 tem 1 carta para cada, o nível 2 tem 2 e o nível 3 tem 3. Vocês têm <b>${LIVES} vidas</b>. Passem do nível ${MAX_LEVEL} para vencer.</p>
-      <p><b>Categorias:</b> quem cria a sala escolhe os assuntos dos temas.</p>
-      <p><b>Fim da rodada:</b> todo mundo aperta o mesmo botão, Acertamos ou Erramos, para seguirem juntos.</p>`,
+      <p><b>Ao criar a sala</b>, escolha quantas rodadas querem jogar, os assuntos dos temas e, se quiser, o nome de cada pessoa.</p>
+      <p><b>Fim da rodada:</b> todo mundo aperta o mesmo botão, Acertamos ou Erramos, para seguirem juntos. No final aparece o placar da turma.</p>`,
       actions:[{label:'Entendi',value:'ok',cls:'brand'}]});
   },
   async leave(){
-    if(!await confirmBox('Sair da sala?','O progresso desta partida será apagado deste celular.','Sair')) return;
+    if(S && S.status==='play' && !await confirmBox('Sair da sala?','O progresso desta partida será apagado deste celular.','Sair')) return;
     S=null; clearSaved(); history.replaceState(null,'',location.pathname); home();
   },
   async install(){
@@ -377,13 +440,13 @@ const act = {
     installEvt=null; if(!S && !P) home();
   },
   applyUpdate(){
-    if(swReg && swReg.waiting) swReg.waiting.postMessage({type:'SKIP_WAITING'});
+    if(swReg && swReg.waiting){ window.__itoUpdating=true; swReg.waiting.postMessage({type:'SKIP_WAITING'}); }
     else hardUpdate();
   },
   hardUpdate(){ hardUpdate(); }
 };
 
-/* ---------- Atualizar: limpa cache e recarrega ---------- */
+/* ---------- Atualizar: limpa os arquivos guardados e recarrega ---------- */
 async function hardUpdate(){
   toast('Atualizando…');
   try{
@@ -408,7 +471,7 @@ document.addEventListener('click',e=>{
 $('#menu').addEventListener('click',e=>{ if(e.target===e.currentTarget) e.currentTarget.close(); });
 $('#dialog').addEventListener('click',e=>{ if(e.target===e.currentTarget) e.currentTarget.close(); });
 
-window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); installEvt=e; if(!S && !P) home(); });
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); installEvt=e; if(!S && !P) home(true); });
 window.addEventListener('appinstalled',()=>{ installEvt=null; toast('ito instalado'); });
 
 /* ---------- Service worker ---------- */
@@ -423,7 +486,7 @@ if('serviceWorker' in navigator){
         w && w.addEventListener('statechange',()=>{ if(w.state==='installed' && navigator.serviceWorker.controller) showBar(); });
       });
       let reloading=false;
-      navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(reloading) return; reloading=true; location.reload(); });
+      navigator.serviceWorker.addEventListener('controllerchange',()=>{ if(!window.__itoUpdating || reloading) return; reloading=true; location.reload(); });
       setInterval(()=>swReg.update().catch(()=>{}), 30*60*1000);
     }catch(e){}
   });
@@ -431,9 +494,8 @@ if('serviceWorker' in navigator){
 
 /* ---------- Início ---------- */
 (function start(){
-  // remove o parâmetro usado para furar o cache
-  if(location.search){ history.replaceState(null,'',location.pathname+location.hash); }
-  const h=parseCode(decodeURIComponent(location.hash.slice(1))), saved=load();
+  if(location.search) history.replaceState(null,'',location.pathname+location.hash);
+  const h=parseHash(location.hash), saved=load();
   if(h && saved && saved.code===h.code){ S=saved; game(); }
   else if(h){ P=h; seatScreen(); }
   else home();

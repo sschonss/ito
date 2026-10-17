@@ -104,7 +104,7 @@ button{cursor:pointer}
 
 /* Room */
 .room-code{text-align:center;padding:26px 20px 20px}
-.room-code .code{font:800 48px/1 var(--display);letter-spacing:.12em;margin:4px 0 18px;padding-left:.12em}
+.room-code .code{font:800 clamp(30px,10vw,44px)/1 var(--display);letter-spacing:.06em;margin:4px 0 18px;white-space:nowrap}
 .seats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
 .seats button{aspect-ratio:1;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--radius-sm);font:800 22px/1 var(--display);transition:transform .08s}
 .seats button:active{transform:scale(.94);background:var(--brand);color:var(--brand-ink)}
@@ -224,3 +224,44 @@ body:has(.dock) .toast{bottom:calc(140px + env(safe-area-inset-bottom))}
 
 .theme-top .eyebrow{margin:0}
 .theme h2{margin-top:8px}
+
+/* Criar sala */
+.field-group{margin-bottom:18px}
+.field-group>.label,.cat-head .label{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:8px}
+.cat-head .label{margin:0}
+.field-group .stepper{margin-bottom:0}
+.field-group .cats{margin-bottom:0}
+.names{margin-top:10px;font-size:15px;color:var(--ink)}
+.names summary{list-style:none;display:flex;align-items:center;gap:8px;padding:10px 2px;font-weight:600;color:var(--brand);cursor:pointer}
+.names summary::-webkit-details-marker{display:none}
+.names summary::before{content:"+";display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brand-soft);color:var(--brand);font-size:16px;line-height:1}
+.names[open] summary::before{content:"−"}
+.names summary span{font-weight:400;color:var(--ink-2);font-size:13px}
+.name-list{display:grid;gap:8px;padding-top:4px}
+.name-input{width:100%;height:48px;border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:0 14px;font:400 16px var(--font)}
+.name-input:focus{outline:none;border-color:var(--brand);background:var(--surface)}
+.name-input::placeholder{color:var(--ink-2);opacity:.7}
+
+/* Sala */
+.room-info{font-size:13px;color:var(--ink-2);margin:-8px 0 18px;line-height:1.5}
+.players{display:grid;gap:8px}
+.player{display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--radius-sm);text-align:left;transition:transform .08s}
+.player:active{transform:scale(.98);border-color:var(--brand)}
+.player .num{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--surface);font:800 15px/1 var(--display);flex:none}
+.player .nm{flex:1;font-weight:600;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player svg{width:18px;height:18px;color:var(--ink-2)}
+
+/* Progresso e placar */
+.statusbar{justify-content:space-between}
+.score-pill{color:var(--ok)}
+.score-pill svg{width:16px;height:16px}
+.progress{display:flex;gap:4px;margin:-4px 0 14px}
+.progress i{flex:1;height:6px;border-radius:3px;background:var(--line)}
+.progress i.ok{background:var(--ok)}
+.progress i.no{background:var(--brand)}
+.progress i.now{background:var(--ink)}
+.end-state .eyebrow{margin-bottom:4px}
+.end-state .score{display:flex;align-items:baseline;justify-content:center;gap:8px;margin:14px 0 6px}
+.end-state .score strong{font:800 64px/1 var(--display);letter-spacing:-.03em}
+.end-state .score span{font-size:18px;color:var(--ink-2)}
+.end-state .progress{margin:0 0 22px}
