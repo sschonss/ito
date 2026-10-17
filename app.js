@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const MAX_LEVEL = 3, LIVES = 3, STORE = 'ito-state';
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -175,7 +175,7 @@ function home(keep){
   <section class="hero">
     <p class="eyebrow">Jogo cooperativo</p>
     <h1>Pense no número.<br><em>Fale o tema.</em></h1>
-    <p>Cada um joga no próprio celular. Sem cadastro, sem servidor.</p>
+    <p>Junte a turma, cada um no seu celular, e descubram juntos a ordem das cartas.</p>
   </section>
 
   ${saved?`<button class="resume" data-act="resume">
@@ -183,7 +183,7 @@ function home(keep){
     <span><strong>Continuar partida</strong><span>Sala ${saved.code} · jogador ${saved.seat} · rodada ${saved.round}</span></span>
     ${I.chevron}</button>`:''}
 
-  ${installEvt?`<div class="install"><p>Instale o ito na tela inicial para abrir mais rápido e jogar offline.</p><button class="btn brand" data-act="install">Instalar</button></div>`:''}
+  ${installEvt?`<div class="install"><p>Coloque o ito na tela inicial e abra como um app.</p><button class="btn brand" data-act="install">Instalar</button></div>`:''}
 
   <section class="panel">
     <h2>Criar sala</h2>
@@ -207,7 +207,7 @@ function home(keep){
     <button class="btn" data-act="join">Entrar</button>
   </section>
 
-  <div class="foot"><button data-act="rules">Como jogar</button>·<span>v${VERSION}</span>·<button data-act="hardUpdate">Atualizar app</button></div>`, false, keep);
+  <div class="foot"><button data-act="rules">Como jogar</button>·<button data-act="hardUpdate">Atualizar app</button></div>`, false, keep);
   const input=$('#code'); input.value=typed;
   input.addEventListener('keydown',e=>{ if(e.key==='Enter') act.join(); });
   input.addEventListener('input',()=>{ $('#err').textContent=''; });
@@ -299,13 +299,13 @@ function openMenu(){
   if(inGame){
     items.push(['share',I.share,'Convidar para a sala']);
     items.push(['reveal',I.eye,'Conferir cartas de todos']);
-    items.push(['syncBox',I.sliders,'Ajustar sincronia']);
+    items.push(['syncBox',I.sliders,'Corrigir rodada']);
     if(canSpeak) items.push(['toggleVoice', prefs.autoSpeak?I.speaker:I.mute, prefs.autoSpeak?'Leitura do tema: ligada':'Leitura do tema: desligada']);
     items.push('hr');
   }
   items.push(['rules',I.book,'Como jogar']);
   if(installEvt) items.push(['install',I.download,'Instalar app']);
-  items.push(['hardUpdate',I.refresh,'Atualizar app (limpar cache)']);
+  items.push(['hardUpdate',I.refresh,'Atualizar app']);
   if(inGame){ items.push('hr'); items.push(['leave',I.exit,'Sair da sala','danger']); }
   $('#menuList').innerHTML=items.map(it=>it==='hr'?'<hr>':`<button data-act="${it[0]}" class="${it[3]||''}">${it[1]}<span>${it[2]}</span></button>`).join('');
   $('#versionLabel').textContent=`ito v${VERSION}`;
@@ -371,7 +371,7 @@ const act = {
   skip(){ S.themePos++; save(); game(); if(prefs.autoSpeak) speakTheme(); },
   restart(){ S.level=1; S.lives=LIVES; S.status='play'; next(); },
   async syncBox(){
-    const v=await dialog({title:'Ajustar sincronia', body:`<p>Se um celular ficou diferente dos outros, copie os valores de um celular certo.</p>
+    const v=await dialog({title:'Corrigir rodada', body:`<p>Alguém ficou com a rodada ou o tema diferente? Copie aqui os números do celular de outra pessoa.</p>
       <div class="grid2">
         <label>Rodada<input id="sr" type="number" inputmode="numeric" min="1" value="${S.round}"></label>
         <label>Nível<input id="sl" type="number" inputmode="numeric" min="1" max="${MAX_LEVEL}" value="${S.level}"></label>
@@ -381,7 +381,7 @@ const act = {
     if(v!=='ok') return;
     const n=id=>parseInt($('#'+id).value,10)||0, clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
     S.round=clamp(n('sr'),1,99999); S.level=clamp(n('sl'),1,MAX_LEVEL); S.lives=clamp(n('sv'),1,LIVES); S.themePos=clamp(n('st'),0,99999);
-    S.status='play'; peek=false; save(); game(); toast('Sincronizado');
+    S.status='play'; peek=false; save(); game(); toast('Pronto, tudo certo');
   },
   rules(){
     dialog({title:'Como jogar', body:`
@@ -393,8 +393,8 @@ const act = {
         <li>Se alguém baixar uma carta maior que outra ainda na mão, vocês erraram.</li>
       </ol>
       <p>Nível 1 tem 1 carta para cada, o nível 2 tem 2 e o nível 3 tem 3. Vocês têm <b>${LIVES} vidas</b>. Passem do nível ${MAX_LEVEL} para vencer.</p>
-      <p><b>Categorias:</b> quem cria a sala escolhe os assuntos dos temas. A escolha vai junto no código da sala.</p>
-      <p><b>Sem servidor:</b> o código da sala gera as mesmas cartas em todos os celulares. Ao fim de cada rodada, todos apertam o mesmo botão (Acertamos ou Erramos) e tudo continua igual.</p>`,
+      <p><b>Categorias:</b> quem cria a sala escolhe os assuntos dos temas.</p>
+      <p><b>Fim da rodada:</b> todo mundo aperta o mesmo botão, Acertamos ou Erramos, para seguirem juntos.</p>`,
       actions:[{label:'Entendi',value:'ok',cls:'brand'}]});
   },
   async leave(){
