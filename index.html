@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ito · jogo cooperativo dos números</title>
+<meta name="description" content="Jogue ito com os amigos, cada um no próprio celular. Sem cadastro e sem servidor.">
+<meta name="theme-color" content="#F5F1EA" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#121113" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ito">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="preload" href="fonts/inter-400.woff" as="font" type="font/woff" crossorigin>
+<link rel="preload" href="fonts/inter-display-800.woff" as="font" type="font/woff" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="appbar">
+  <button class="brand" data-act="goHome" aria-label="Início">
+    <svg class="brand-mark" viewBox="0 0 40 16" aria-hidden="true"><path d="M2 10c6-6 10 4 17-2s11 2 15-1" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="35" cy="7" r="3" fill="currentColor"/></svg>
+    <span>ito</span>
+  </button>
+  <div class="appbar-meta" id="appbarMeta"></div>
+  <button class="icon-btn" data-act="openMenu" aria-label="Menu">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+  </button>
+</header>
+
+<main id="view" class="view"></main>
+
+<div id="updateBar" class="update-bar" hidden>
+  <span>Nova versão disponível</span>
+  <button data-act="applyUpdate">Atualizar</button>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<dialog id="menu" class="sheet">
+  <div class="sheet-handle"></div>
+  <nav class="menu-list" id="menuList"></nav>
+  <p class="menu-foot" id="versionLabel"></p>
+</dialog>
+
+<dialog id="dialog" class="modal">
+  <form method="dialog">
+    <h3 id="dlgTitle"></h3>
+    <div id="dlgBody" class="dlg-body"></div>
+    <div class="modal-actions" id="dlgActions"></div>
+  </form>
+</dialog>
+
+<noscript><p style="padding:24px">Ative o JavaScript para jogar.</p></noscript>
+<script src="app.js" defer></script>
+</body>
+</html>
