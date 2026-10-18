@@ -6,6 +6,13 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 
 ## Como funciona
 
+Há dois jeitos de jogar:
+
+- **Cada um no seu celular** (sala conectada): explicado abaixo.
+- **Num celular só** (passa e joga): para jogar junto, passando o celular de mão em mão. Digita os nomes, cada um toca para ver a própria carta com a tela escondida dos outros, e depois o celular fica na mesa para arrumar a ordem e revelar. Funciona sem internet e dá para continuar a partida depois de fechar o app.
+
+### Cada um no seu celular
+
 - Quem cria a sala é o **anfitrião**: escolhe jogadores, rodadas e categorias, e manda o convite (link, QR code ou código de 8 letras).
 - Cada pessoa coloca o próprio nome, se quiser. O anfitrião pode mudar a ordem ou tirar alguém da sala.
 - A cada rodada cada um recebe uma carta de 1 a 100. Quando achar que é a sua vez, toca em **Baixar minha carta**. O app mostra a mesa para todos e avisa quando uma carta sai **fora da ordem**.
