@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -652,7 +652,7 @@ function game(){
       <div class="stack"><button class="btn brand" data-act="restart">Jogar de novo</button>
         <button class="btn soft" data-act="shareSummary">${svgStroke(I.share)}Compartilhar resumo</button>
         <button class="btn outline" data-act="leave">Sair</button></div>
-    </section>${online?reactionsBar():''}`, false, online);
+    </section>${online?reactFab():''}`, false, online);
     return;
   }
   if(!S.seat){ render(`<section class="panel connect"><div class="spinner"></div><h2>Entrando na partida…</h2></section>`,false,true); return; }
@@ -666,8 +666,7 @@ function game(){
     <div class="scale"><span class="end">1</span><span class="bar"></span><span class="end">100</span></div>
     <div class="scale-labels"><span>${esc(low)}</span><span>${esc(high)}</span></div>
     ${canEditTheme && !(online && S.vote)?`<div class="theme-actions">
-      ${online?`<button class="chip" data-act="customTheme">${svgStroke(I.pencil)}Escrever</button><button class="chip" data-act="voteStart">${svgStroke(I.vote)}Votar</button>`:''}
-      <button class="chip" data-act="skip">${svgStroke(I.shuffle)}Trocar</button></div>`:''}
+      ${online?`<button class="chip" data-act="themeMenu">${svgStroke(I.shuffle)}Mudar tema</button>`:`<button class="chip" data-act="skip">${svgStroke(I.shuffle)}Trocar tema</button>`}</div>`:''}
   </section>${online && S.vote ? votePanel() : ''}`;
   const cardHtml=`<p class="whose">Sua carta, ${esc(nameOf(S.seat))}</p>
   <div class="hand"><button class="card ${peek||iPlayed?'up':''} ${iPlayed?'played':''}" data-act="peek" aria-label="${peek?'Sua carta: '+mine:'Carta escondida'}">
@@ -686,41 +685,44 @@ function game(){
     return;
   }
 
-  // Mesa (modo conectado)
-  const playedSeats=new Set(S.table.map(t=>t.seat)), d=deck();
+  // Mesa (modo conectado) — só o essencial à mostra
   const pending=planOrder(), hintOf=s=>S.hints[s]||'';
   const roundOk=S.roundOver && S.table.every(t=>t.ok);
-  const held=S.roundOver?[...Array(S.n)].map((_,i)=>i+1).filter(s=>!playedSeats.has(s)).map(s=>({seat:s,card:d[s-1]})):[];
   const anim=Date.now()<revealAnimUntil;
-  const table=`<section class="panel table">
+  const tips=!ls.get('ito-tips',false) ? `<section class="panel tips">
+    <p class="eyebrow">Como funciona</p>
+    <ol><li><b>Toque na carta</b> para ver seu número.</li><li>Fale uma <b>dica</b> sobre o tema, sem dizer o número.</li>
+    <li>Arrumem a <b>ordem da turma</b>: quem tem o menor número vai primeiro.</li><li><b>Revelem</b> todas de uma vez ou baixem uma por uma.</li></ol>
+    <button class="btn soft" data-act="tipsOk">Entendi</button></section>` : '';
+  const hintRow=!iPlayed && !S.roundOver ? `<div class="hint-row"><input id="myHint" maxlength="30" placeholder="Sua dica (opcional)" value="${esc(hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
+    <button data-act="saveHint">${hintOf(S.seat)?'Trocar':'Enviar'}</button></div>` : '';
+  const table=S.table.length && !S.roundOver ? `<section class="panel table">
     <div class="row-between"><h2>Na mesa</h2><span class="count">${S.table.length} de ${S.table.length+pending.length}</span></div>
-    ${S.table.length?`<ol class="pile ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${t.seat===S.seat?'me':''} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
-      ${held.map(t=>`<li class="gone"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span><em>saiu</em></li>`).join('')}</ol>`
-      :'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
-  </section>`;
+    <ol class="pile ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${t.seat===S.seat?'me':''} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}</ol>
+  </section>` : '';
   const order=!S.roundOver && pending.length ? `<section class="panel order">
     <div class="row-between"><h2>Ordem da turma</h2><span class="count">${pending.length} na mão</span></div>
-    <p class="lead">Combinem quem baixa primeiro e arrumem aqui. Qualquer um pode mexer.</p>
+    <p class="lead">Quem tem o menor número vai primeiro. Qualquer um pode mexer.</p>
     <ol class="order-list">${pending.map((s,i)=>`<li class="${s===S.seat?'me':''}">
       <span class="pos">${S.table.length+i+1}º</span>
-      <span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">sem dica</i>'}</span>
+      <span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:''}</span>
       <button class="row-btn" data-act="planMove" data-s="${s}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">${svgStroke(I.up)}</button>
       <button class="row-btn" data-act="planMove" data-s="${s}" data-d="1" ${i===pending.length-1?'disabled':''} aria-label="Descer">${svgStroke(I.down)}</button>
     </li>`).join('')}</ol>
-    ${pending.length>1?`<button class="btn outline" data-act="revealPlan">${svgStroke(I.eye)}Revelar tudo nessa ordem</button>`:''}
+    ${pending.length>1?`<button class="btn brand" data-act="revealPlan">${svgStroke(I.eye)}Revelar nessa ordem</button>`:''}
   </section>` : '';
-  const hintBox=!iPlayed && !S.roundOver ? `<section class="panel hint-box">
-    <h2>Sua dica</h2><p class="lead">A palavra que você falou. Todos veem na mesa.</p>
-    <div class="name-row"><input id="myHint" class="name-input" maxlength="30" placeholder="Ex.: pizza" value="${esc(hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
-    <button class="btn soft" data-act="saveHint">${hintOf(S.seat)?'Trocar':'Enviar'}</button></div></section>` : '';
+  const result=S.roundOver ? `<section class="panel reveal-panel">
+    <p class="eyebrow">${ci<0?'Tema da turma':'Tema'}</p><h2 class="rp-title">${esc(title)}</h2>
+    <div class="result ${roundOk?'good':'bad'}">${roundOk?I.check:I.x}<span>${roundOk?'Ordem perfeita! Rodada certa.':'Teve carta fora da ordem.'}</span></div>
+    ${roundRuler()}
+  </section>` : '';
   const last=S.results.length>=S.rounds;
   const dock=S.roundOver
-    ? `<div class="result ${roundOk?'good':'bad'}">${roundOk?I.check:I.x}<span>${roundOk?'Ordem perfeita! Rodada certa.':'Teve carta fora da ordem.'}</span></div>
-       <button class="btn brand" data-act="next">${last?'Ver resultado':'Próxima rodada'}</button>`
+    ? `<button class="btn brand" data-act="next">${last?'Ver resultado':'Próxima rodada'}</button>`
     : iPlayed
-      ? `<p class="note">Sua carta já está na mesa</p><button class="btn soft" disabled>Esperando os outros…</button>`
-      : `<p class="note">Baixe a sua quando for a vez, ou revelem todas pela ordem da turma</p><button class="btn brand" data-act="playCard">${svgStroke(I.play)}Baixar minha carta</button>`;
-  render(`${hostGone?banner():''}${statusTop(score)}${themeCard}${cardHtml}${hintBox}${reactionsBar()}${table}${order}
+      ? `<button class="btn soft" disabled>Sua carta está na mesa</button>`
+      : `<button class="btn outline" data-act="playCard">${svgStroke(I.play)}Baixar só a minha carta</button>`;
+  render(`${hostGone?banner():''}${tips}${statusTop(score)}${S.roundOver?'':themeCard}${S.roundOver?'':cardHtml+hintRow}${result}${order}${table}${reactFab()}
     <div class="dock"><div class="dock-inner">${dock}</div></div>`, true, true);
   const hi=$('#myHint'); hi && hi.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveHint(); } });
 
@@ -787,6 +789,8 @@ function showReaction(e, by){
   fx.appendChild(el); setTimeout(()=>el.remove(),2600);
 }
 const myLabel=()=>NET.spectator?'Telão':(S&&S.seat?nameOf(S.seat):(myName||''));
+const reactFab=()=>`<div class="react-fab-wrap"><div class="react-pop" hidden>${EMOJIS.map(e=>`<button data-act="react" data-e="${e}" aria-label="Reagir ${e}">${e}</button>`).join('')}</div>
+  <button class="react-fab" data-act="reactOpen" aria-label="Reagir">${'😀'}</button></div>`;
 const reactionsBar=()=>`<div class="reactions">${EMOJIS.map(e=>`<button data-act="react" data-e="${e}" aria-label="Reagir ${e}">${e}</button>`).join('')}</div>`;
 
 /* ======================================================================
@@ -876,6 +880,44 @@ async function summaryImage(){
   function fit(g,t,max){ if(g.measureText(t).width<=max) return t; while(t.length>1 && g.measureText(t+'…').width>max) t=t.slice(0,-1); return t+'…'; }
 }
 
+
+/* ======================================================================
+   Régua da revelação: cartas na linha de 1 a 100
+   ====================================================================== */
+let rulerAnimKey='';
+function ruler(entries, o){
+  o=o||{};
+  const pad=16, gap=o.gap||44, n=entries.length;
+  const H=Math.max(o.min||300, n*gap+pad*2);
+  const items=entries.slice().sort((a,b)=>a.card-b.card).map(e=>Object.assign({},e,{y:pad+(e.card-1)/99*(H-pad*2)}));
+  let last=-1e9; items.forEach(it=>{ it.ly=Math.max(it.y, last+gap); last=it.ly; });
+  let next=H-pad; for(let i=items.length-1;i>=0;i--){ items[i].ly=Math.min(items[i].ly,next); next=items[i].ly-gap; }
+  const AX=o.ax||46, LX=AX+28;
+  const lines=items.map(it=>`<path d="M${AX} ${it.y} C ${AX+14} ${it.y}, ${LX-14} ${it.ly}, ${LX} ${it.ly}" class="${it.ok===false?'bad':''}" style="--i:${it.seq||0}"/>`).join('');
+  return `<div class="ruler-wrap">
+    ${o.low?`<p class="r-cap">1 = ${esc(o.low)}</p>`:''}
+    <div class="ruler ${o.anim?'anim':''}" style="height:${H}px;--ax:${AX}px;--lx:${LX}px">
+      <div class="r-axis"></div><span class="r-end" style="top:${pad}px">1</span><span class="r-end" style="top:${H-pad}px">100</span>
+      <svg class="r-lines" width="${LX}" height="${H}">${lines}</svg>
+      ${items.map(it=>`<div class="r-dot ${it.ok===false?'bad':''} ${it.gone?'gone':''} ${it.me?'me':''}" style="top:${it.y}px;--i:${it.seq||0}"></div>
+        <div class="r-label ${it.ok===false?'bad':''} ${it.gone?'gone':''} ${it.me?'me':''}" style="top:${it.ly}px;--i:${it.seq||0}">
+          <b>${it.card}</b><span class="r-name">${esc(it.name)}${it.order?` <small>${it.order}º</small>`:''}</span>${it.hint?`<i>“${esc(it.hint)}”</i>`:''}${it.ok===false?'<em>fora da ordem</em>':it.gone?'<em>saiu</em>':''}
+        </div>`).join('')}
+    </div>
+    ${o.high?`<p class="r-cap">100 = ${esc(o.high)}</p>`:''}
+  </div>`;
+}
+function roundRuler(o){
+  const d=deck(), hints=S.hints||{}, played=new Set(S.table.map(t=>t.seat));
+  const fromIdx=Math.max(0,revealFrom);
+  const entries=S.table.map((t,i)=>({card:t.card, name:nameOf(t.seat), hint:hints[t.seat]||'', ok:t.ok, order:i+1, me:t.seat===S.seat, seq:Math.max(0,i-fromIdx)}))
+    .concat([...Array(S.n)].map((_,i)=>i+1).filter(s=>!played.has(s)).map(s=>({card:d[s-1], name:nameOf(s), hint:hints[s]||'', gone:true, seq:S.table.length})));
+  const key=S.code+'|'+S.game+'|'+S.round;
+  const anim=rulerAnimKey!==key || Date.now()<revealAnimUntil; rulerAnimKey=key;
+  const [,low,high]=theme();
+  return ruler(entries, Object.assign({anim, low, high}, o||{}));
+}
+
 /* ======================================================================
    Modo telão (TV ou notebook)
    ====================================================================== */
@@ -912,9 +954,9 @@ function tv(){
       ${S.roundOver?`<div class="result big ${roundOk?'good':'bad'}">${roundOk?I.check:I.x}<span>${roundOk?'Ordem perfeita!':'Teve carta fora da ordem'}</span></div>`:''}
     </section>
     <section class="tv-table">
-      <h3>Na mesa</h3>
-      ${S.table.length||held.length?`<ol class="pile big ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
-        ${held.map(t=>`<li class="gone"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span><em>saiu</em></li>`).join('')}</ol>`:'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
+      ${S.roundOver?`<h3>Como ficou</h3>${roundRuler({gap:54, min:Math.max(320, Math.min(520, innerHeight-300)), ax:70})}`:`<h3>Na mesa</h3>`}
+      ${S.roundOver?'':S.table.length?`<ol class="pile big ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
+        </ol>`:'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
       ${pending.length&&!S.roundOver?`<h3>Ordem da turma</h3><ol class="order-list tv">${pending.map((s,i)=>`<li><span class="pos">${S.table.length+i+1}º</span><span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">pensando…</i>'}</span></li>`).join('')}</ol>`:''}
     </section>
   </div>`, false, true);
@@ -965,9 +1007,19 @@ const act={
   },
   retry(){ startGuest(parseCode(NET.code), NET.st, NET.spectator); },
   joinTv(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Digite o código da sala para abrir o telão.'; return; } ls.del(LOCAL_KEY); startGuest(p,null,true); },
+  tipsOk(){ ls.set('ito-tips',true); showOnline(); },
+  reactOpen(){ const p=$('.react-pop'); if(p) p.hidden=!p.hidden; },
+  async themeMenu(){
+    const v=await dialog({title:'Mudar tema', body:'<p>Só dá para mudar antes de alguém baixar uma carta.</p>', actions:[
+      {label:svgStroke(I.shuffle)+'Trocar por outro tema', value:'skip'},
+      {label:svgStroke(I.vote)+'Votar entre dois temas', value:'voteStart'},
+      {label:svgStroke(I.pencil)+'Escrever o nosso tema', value:'customTheme'},
+      {label:'Cancelar', value:'no', cls:'text'}]});
+    if(v==='skip') act.skip(); else if(v==='voteStart') act.voteStart(); else if(v==='customTheme') act.customTheme();
+  },
   saveHint(){ const i=$('#myHint'); if(!i) return; const text=i.value.trim().slice(0,30); i.blur(); sendAct('hint',{text}); toast(text?'Dica enviada':'Dica apagada'); },
   react(b){ const now=Date.now(); if(now-lastReact<700) return; lastReact=now; const e=b.dataset.e, by=myLabel();
-    showReaction(e, by); SFX.pop(); broadcast({t:'react', e, by, id:Math.random().toString(36).slice(2)}); },
+    showReaction(e, by); SFX.pop(); broadcast({t:'react', e, by, id:Math.random().toString(36).slice(2)}); const p=$('.react-pop'); if(p) p.hidden=true; },
   voteStart(){ sendAct('voteStart'); },
   vote(b){ sendAct('vote',{i:+b.dataset.i}); },
   voteEnd(){ sendAct('voteEnd'); },
@@ -1052,8 +1104,9 @@ const act={
   },
   async reveal(){
     if(!await confirmBox('Mostrar todas as cartas?','Façam isso só depois de baixar as cartas, para conferir a ordem.','Mostrar')) return;
-    const d=deck(), list=[...Array(S.n)].map((_,i)=>({v:d[i],p:i+1})).sort((a,b)=>a.v-b.v);
-    dialog({title:`Rodada ${S.round}`, body:`<ul class="thread-list">${list.map(x=>`<li class="${x.p===S.seat?'me':''}"><span>${esc(nameOf(x.p))}${x.p===S.seat?' (você)':''}</span><strong>${x.v}</strong></li>`).join('')}</ul>`, actions:[{label:'Fechar',value:'ok',cls:'brand'}]});
+    const d=deck(), [,low,high]=theme();
+    const entries=[...Array(S.n)].map((_,i)=>({card:d[i], name:nameOf(i+1)+(i+1===S.seat?' (você)':''), me:i+1===S.seat, seq:i}));
+    dialog({title:`Rodada ${S.round}`, body:ruler(entries,{anim:true, low, high, min:260}), actions:[{label:'Fechar',value:'ok',cls:'brand'}]});
   },
   showHistory(){
     const h=S.history||[];
@@ -1088,7 +1141,7 @@ const act={
         <li>Se alguém baixar uma carta maior que a de outra pessoa que ainda não baixou, o app avisa: <b>fora da ordem</b>.</li>
       </ol>
       <p><b>Criar a sala:</b> escolha quantas rodadas e os assuntos dos temas, e mande o convite (link ou QR code). Cada um coloca o próprio nome, se quiser.</p>
-      <p><b>Ordem da turma:</b> combinem quem baixa primeiro, arrumem a lista e toquem em <b>Revelar tudo nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
+      <p><b>Ordem da turma:</b> combinem quem baixa primeiro, arrumem a lista e toquem em <b>Revelar nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
       <p><b>Dica:</b> escreva a palavra que você falou. Ela aparece na mesa para todos.</p>
       <p><b>Tema:</b> antes de alguém baixar, dá para trocar, votar entre dois temas ou escrever um tema da turma.</p>
       <p><b>Telão:</b> uma TV ou notebook pode entrar como mesa, mostrando tudo em tamanho grande.</p>

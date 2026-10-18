@@ -436,3 +436,64 @@ body.tv .reactions{display:none}
 body.tv .float-emoji span{font-size:72px}
 body.tv .float-emoji small{font-size:16px}
 @media (max-width:820px){ .tv-lobby,.tv-grid{grid-template-columns:1fr} .tv-lobby{gap:24px} }
+
+/* v1.5 — régua e tela simplificada */
+.tips{border-color:var(--brand);background:var(--brand-soft)}
+.tips ol{margin:0 0 14px;padding-left:20px;font-size:15px;line-height:1.5}
+.tips li{margin-bottom:4px}
+.tips .btn{min-height:44px;background:var(--surface)}
+.hint-row{display:flex;gap:8px;margin:-6px 0 18px}
+.hint-row input{flex:1;min-width:0;height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:0 14px;font:400 16px var(--font);color:var(--ink)}
+.hint-row input:focus{outline:none;border-color:var(--brand)}
+.hint-row button{height:44px;padding:0 16px;border:0;border-radius:12px;background:var(--surface-2);font-weight:600}
+.order .btn.brand{margin-top:2px}
+
+.react-fab-wrap{position:fixed;right:16px;bottom:calc(92px + env(safe-area-inset-bottom));z-index:16;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.react-fab{width:46px;height:46px;opacity:.92;border-radius:50%;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);font-size:22px;line-height:1}
+.react-pop{display:flex;flex-direction:column;gap:6px;padding:6px;border-radius:30px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
+.react-pop[hidden]{display:none}
+.react-pop button{width:44px;height:44px;border:0;border-radius:50%;background:transparent;font-size:24px;line-height:1}
+.react-pop button:active{background:var(--surface-2)}
+body.tv .react-fab-wrap{display:none}
+
+.reveal-panel .eyebrow{margin-bottom:2px}
+.rp-title{font:800 24px/1.15 var(--display);letter-spacing:-.01em;margin:0 0 10px}
+.reveal-panel .result{justify-content:flex-start;margin:0 0 14px}
+.ruler-wrap{margin:0}
+.r-cap{margin:0;font-size:12px;color:var(--ink-2)}
+.ruler{position:relative;margin:6px 0}
+.r-axis{position:absolute;left:var(--ax);top:10px;bottom:10px;width:6px;margin-left:-3px;border-radius:3px;background:linear-gradient(180deg,var(--surface-2),var(--brand))}
+.r-end{position:absolute;left:0;width:calc(var(--ax) - 12px);text-align:right;transform:translateY(-50%);font:800 13px/1 var(--display);color:var(--ink-2)}
+.r-lines{position:absolute;left:0;top:0;overflow:visible}
+.r-lines path{fill:none;stroke:var(--line);stroke-width:1.5}
+.r-lines path.bad{stroke:var(--brand)}
+.r-dot{position:absolute;left:var(--ax);width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--ok);border:3px solid var(--surface)}
+.r-dot.bad{background:var(--brand)}
+.r-dot.gone{background:var(--ink-2)}
+.r-dot.me{box-shadow:0 0 0 3px color-mix(in srgb,var(--ink) 25%,transparent)}
+.r-label{position:absolute;left:var(--lx);right:0;transform:translateY(-50%);display:flex;align-items:baseline;flex-wrap:wrap;column-gap:8px;row-gap:0;line-height:1.2}
+.r-label b{font:800 22px/1 var(--display);font-variant-numeric:tabular-nums;min-width:34px}
+.r-label .r-name{font-weight:600;font-size:15px}
+.r-label .r-name small{font-weight:400;font-size:12px;color:var(--ink-2)}
+.r-label i{font-style:normal;font-size:13px;color:var(--ink-2);flex-basis:100%;padding-left:42px;margin-top:2px}
+.r-label em{font-style:normal;font-size:11px;font-weight:600;color:var(--brand)}
+.r-label.gone em{color:var(--ink-2)}
+.r-label.bad b{color:var(--brand)}
+.r-label.me .r-name{text-decoration:underline;text-decoration-color:var(--brand);text-underline-offset:3px}
+.ruler.anim .r-dot,.ruler.anim .r-label,.ruler.anim .r-lines path{animation:rin .45s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i) * .45s + .1s)}
+@keyframes rin{from{opacity:0;transform:translateY(-50%) translateX(-8px)}to{opacity:1}}
+.ruler.anim .r-dot{animation-name:dotin}
+@keyframes dotin{from{opacity:0;transform:scale(.2)}to{opacity:1;transform:none}}
+.ruler.anim .r-lines path{animation-name:fadein}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+.dlg-body .ruler-wrap{margin-top:4px}
+
+/* régua no telão */
+body.tv .r-label b{font-size:36px;min-width:56px}
+body.tv .r-label .r-name{font-size:22px}
+body.tv .r-label i{font-size:18px;padding-left:64px}
+body.tv .r-label em{font-size:15px}
+body.tv .r-end{font-size:18px}
+body.tv .r-dot{width:20px;height:20px;margin:-10px 0 0 -10px}
+body.tv .r-axis{width:8px;margin-left:-4px}
+body.tv .r-cap{font-size:16px}
