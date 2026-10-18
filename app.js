@@ -78,6 +78,7 @@ const THEMES = CATS.flatMap((c,ci)=>c.themes.map(t=>[t[0],t[1],t[2],ci]));
 const I = {
   share:'<svg viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>',
   copy:'<svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
+  text:'<svg viewBox="0 0 24 24"><path d="M3 19 8 5l5 14M5 14h6M14 19l3.5-8 3.5 8M15.2 16.5h4.6"/></svg>',
   book:'<svg viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5M9 7h6"/></svg>',
   refresh:'<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>',
   eye:'<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
@@ -937,7 +938,7 @@ function game(){
 function statusTop(score){
   return `<div class="statusbar">
     <span class="pill"><span class="k">Rodada</span>${S.round}<span class="k">de ${S.rounds}</span></span>
-    <span class="pill score-pill">${I.check}${score}</span>
+    <span class="pill score-pill" aria-label="Rodadas certas: ${score}">${I.check}${score}</span>
   </div>${progress()}`;
 }
 function isActiveSeat(seat){
@@ -1103,9 +1104,11 @@ function ruler(entries, o){
   let next=H-pad; for(let i=items.length-1;i>=0;i--){ items[i].ly=Math.min(items[i].ly,next); next=items[i].ly-gap; }
   const AX=o.ax||46, LX=AX+28;
   const lines=items.map(it=>`<path d="M${AX} ${it.y} C ${AX+14} ${it.y}, ${LX-14} ${it.ly}, ${LX} ${it.ly}" class="${it.ok===false?'bad':''}" style="--i:${it.seq||0}"/>`).join('');
+  const said=items.map(it=>`<li>${it.card}: ${esc(it.name)}${it.order?`, ${it.order}ª jogada`:''}${it.hint?`, dica “${esc(it.hint)}”`:''}${it.ok===false?', fora do lugar':it.gone?', não jogou':''}</li>`).join('');
   return `<div class="ruler-wrap">
     ${o.low?`<p class="r-cap">1 = ${esc(o.low)}</p>`:''}
-    <div class="ruler ${o.anim?'anim':''}" style="height:${H}px;--ax:${AX}px;--lx:${LX}px">
+    <ol class="sr-only" aria-label="Cartas da menor para a maior">${said}</ol>
+    <div class="ruler ${o.anim?'anim':''}" aria-hidden="true" style="height:${H}px;--ax:${AX}px;--lx:${LX}px">
       <div class="r-axis"></div><span class="r-end" style="top:${pad}px">1</span><span class="r-end" style="top:${H-pad}px">100</span>
       <svg class="r-lines" width="${LX}" height="${H}">${lines}</svg>
       ${items.map(it=>`<div class="r-dot ${it.ok===false?'bad':''} ${it.gone?'gone':''} ${it.me?'me':''}" style="top:${it.y}px;--i:${it.seq||0}"></div>
@@ -1180,6 +1183,8 @@ function tv(){
 /* ======================================================================
    Menu
    ====================================================================== */
+let bigText=!!ls.get('ito-big',false);
+document.documentElement.classList.toggle('big',bigText);
 function openMenu(){
   const inPass=!!(S && S.mode==='pass'), inRoom=!inPass && !!(S||NET.role), items=[];
   if(inRoom){
@@ -1190,6 +1195,7 @@ function openMenu(){
   }
   if(inPass && (S.history||[]).length){ items.push(['showHistory',I.list,'Placar da noite']); items.push('hr'); }
   items.push(['toggleSound', soundOn?I.sound:I.mute, soundOn?'Sons: ligados':'Sons: desligados']);
+  items.push(['toggleBig',I.text,bigText?'Letra maior: ligada':'Letra maior: desligada']);
   items.push(['rules',I.book,'Como jogar']);
   if(installEvt) items.push(['install',I.download,'Instalar app']);
   items.push(['hardUpdate',I.refresh,'Atualizar app']);
@@ -1208,6 +1214,7 @@ const currentCode=()=>NET.code||(S&&S.code)||(P&&P.code);
 const act={
   goHome(){ if(S||NET.role) return; history.replaceState(null,'',location.pathname); home(); },
   openMenu,
+  toggleBig(){ bigText=!bigText; ls.set('ito-big',bigText); document.documentElement.classList.toggle('big',bigText); openMenu(); },
   step(b){ const k=b.dataset.k, d=+b.dataset.d;
     if(k==='rounds') draft.rounds=Math.min(MAX_ROUNDS,Math.max(MIN_ROUNDS,draft.rounds+d));
     reDraft(); },
@@ -1285,7 +1292,7 @@ const act={
   peek(){
     if(S.mode==='online' && S.table.some(t=>t.seat===S.seat)) return;
     peek=!peek;
-    document.querySelectorAll('.card').forEach(c=>c.classList.toggle('up',peek));
+    document.querySelectorAll('.card').forEach(c=>{ c.classList.toggle('up',peek); if(c.dataset.act==='peek') c.setAttribute('aria-label',peek?'Sua carta: '+deck()[S.seat-1]:'Carta escondida'); });
     const h=$('.hint'); if(h) h.textContent=peek?'Toque para esconder':'Toque na carta para ver seu número';
   },
   async playCard(){
@@ -1422,7 +1429,7 @@ function passDeal(){
   const h=(S.hints||{})[i]||'';
   render(`${themeBox(false)}
   <p class="whose">Sua carta, ${esc(who)}</p>
-  <div class="hand"><div class="card up"><span class="face back">${I.thread}</span>
+  <div class="hand"><div class="card up" role="img" aria-label="Sua carta: ${mine}"><span class="face back" aria-hidden="true">${I.thread}</span>
     <span class="face front"><small class="tl">${mine}</small><strong>${mine}</strong><small class="br">${mine}</small></span></div></div>
   <div class="hint-row"><input id="passHint" maxlength="30" placeholder="Sua dica (opcional)" value="${esc(h)}" autocomplete="off" enterkeyhint="done"></div>
   <div class="dock"><div class="dock-inner">
