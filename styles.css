@@ -497,3 +497,12 @@ body.tv .r-end{font-size:18px}
 body.tv .r-dot{width:20px;height:20px;margin:-10px 0 0 -10px}
 body.tv .r-axis{width:8px;margin-left:-4px}
 body.tv .r-cap{font-size:16px}
+
+/* v1.5.1 — ajustes do teste com agentes */
+.link-btn.solo{display:block;width:100%;text-align:center;margin-top:12px;color:var(--ink-2);font-weight:400;text-decoration:underline;text-underline-offset:3px}
+.r-legend{margin:8px 0 0;font-size:12px;color:var(--ink-2)}
+.last-round{margin:-6px 0 18px;text-align:left;border-radius:var(--radius-sm);background:var(--surface-2);padding:10px 14px}
+.last-round summary{font-weight:600;font-size:14px;color:var(--ink)}
+.last-round[open] summary{margin-bottom:8px}
+.react-fab.on{font-size:18px;color:var(--ink-2)}
+.dock .btn:disabled{opacity:.6}

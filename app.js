@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -96,6 +96,8 @@ let P=null;                 // sala aberta (modo sem conexão)
 const draft={ players:4, rounds:5, mask:ALL_MASK };
 let peek=false, peekKey='', lastEv='';
 let installEvt=null, swReg=null;
+const drafts={};      // textos digitados e ainda não enviados (sobrevivem às atualizações da tela)
+let nextReadyAt=0, nextReadyKey='', pending_next=false, reactOpenState=false;
 const NET={ libs:{}, links:[], role:null, code:null, st:null, peers:{}, failed:false, timedOut:false, timer:null, graceTimer:null };
 
 const $=s=>document.querySelector(s);
@@ -376,6 +378,7 @@ function checkRoundOver(st){
   const played=new Set(st.table.map(t=>t.seat));
   if(activeSeats(st).every(s=>played.has(s))){
     st.roundOver=true;
+    markOutOfPlace(st.table);
     st.results.push(st.table.every(t=>t.ok)?1:0);
     const [title,low,high]=themeOf(st), d=deckFor(st.code,st.game,st.round);
     st.log=(st.log||[]).concat({game:st.game, round:st.round, title, low, high,
@@ -449,6 +452,14 @@ function applyAct(st, a, by){
     return true;
   }
   return false;
+}
+/* Marca como erradas só as cartas fora do lugar: mantém a maior sequência crescente */
+function markOutOfPlace(table){
+  const a=table.map(t=>t.card), n=a.length, len=Array(n).fill(1), prev=Array(n).fill(-1);
+  for(let i=0;i<n;i++) for(let j=0;j<i;j++) if(a[j]<a[i] && len[j]+1>len[i]){ len[i]=len[j]+1; prev[i]=j; }
+  let best=0; for(let i=1;i<n;i++) if(len[i]>len[best]) best=i;
+  const keep=new Set(); for(let i=n?best:-1;i>=0;i=prev[i]) keep.add(i);
+  table.forEach((t,i)=>t.ok=keep.has(i));
 }
 function playSeat(st, seat){
   const d=deckFor(st.code,st.game,st.round), card=d[seat-1], played=new Set(st.table.map(t=>t.seat));
@@ -581,15 +592,15 @@ function lobby(){
   <section class="panel">
     <h2>Seu nome</h2>
     <p class="lead">Opcional. É assim que os outros vão te ver.</p>
-    <div class="name-row"><input id="myName" class="name-input" maxlength="20" placeholder="Jogador ${me?me.seat:''}" value="${esc(myName)}" autocomplete="off" enterkeyhint="done">
+    <div class="name-row"><input id="myName" class="name-input" maxlength="20" placeholder="Jogador ${me?me.seat:''}" value="${esc(drafts.name!=null?drafts.name:myName)}" autocomplete="off" enterkeyhint="done">
     <button class="btn soft" data-act="saveName">Salvar</button></div>
   </section>
   ${isHost
     ? `<button class="btn brand big" data-act="start" ${st.players.length<2?'disabled':''}>Começar partida</button>
        <p class="note center">${st.players.length<2?'Esperando a turma entrar…':'Pode começar quando todos estiverem aqui.'}</p>`
-    : `<div class="waiting"><span class="pulse"></span>Esperando o anfitrião começar</div>`}
+    : `<div class="waiting"><span class="pulse"></span>Esperando ${esc((st.players.find(p=>p.cid===st.hostCid)||{}).name||'o anfitrião')} começar a partida</div>`}
   <button class="btn text" data-act="leave">${isHost?'Encerrar sala':'Sair da sala'}</button>`, false, true);
-  const inp=$('#myName'); inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveName(); } });
+  const inp=$('#myName'); inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveName(); } }); inp.addEventListener('input',()=>{ drafts.name=inp.value; });
 }
 
 /* ======================================================================
@@ -644,9 +655,10 @@ function game(){
       <div class="badge">${pct>=.5?I.trophy:I.broken}</div>
       <p class="eyebrow">Fim de jogo</p>
       <h2>${title}</h2>
-      <div class="score"><strong>${score}</strong><span>de ${total}</span></div>
+      <div class="score"><strong>${score}</strong><span>de ${total} ${total===1?'rodada certa':'rodadas certas'}</span></div>
       <p>${msg}</p>
       ${progress()}
+      ${online && (S.log||[]).length ? (()=>{ const l=S.log[S.log.length-1]; return l.game===S.game ? `<details class="last-round"><summary>Ver a última rodada · ${esc(l.title)}</summary>${logRuler(l)}</details>` : ''; })() : ''}
       ${highlightsHtml()}
       ${historyList()}
       <div class="stack"><button class="btn brand" data-act="restart">Jogar de novo</button>
@@ -694,22 +706,22 @@ function game(){
     <ol><li><b>Toque na carta</b> para ver seu número.</li><li>Fale uma <b>dica</b> sobre o tema, sem dizer o número.</li>
     <li>Arrumem a <b>ordem da turma</b>: quem tem o menor número vai primeiro.</li><li><b>Revelem</b> todas de uma vez ou baixem uma por uma.</li></ol>
     <button class="btn soft" data-act="tipsOk">Entendi</button></section>` : '';
-  const hintRow=!iPlayed && !S.roundOver ? `<div class="hint-row"><input id="myHint" maxlength="30" placeholder="Sua dica (opcional)" value="${esc(hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
+  const hintRow=!iPlayed && !S.roundOver ? `<div class="hint-row"><input id="myHint" maxlength="30" placeholder="Sua dica (opcional)" value="${esc(drafts.hint&&drafts.hint.k===key?drafts.hint.v:hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
     <button data-act="saveHint">${hintOf(S.seat)?'Trocar':'Enviar'}</button></div>` : '';
   const table=S.table.length && !S.roundOver ? `<section class="panel table">
     <div class="row-between"><h2>Na mesa</h2><span class="count">${S.table.length} de ${S.table.length+pending.length}</span></div>
-    <ol class="pile ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${t.seat===S.seat?'me':''} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}</ol>
+    <ol class="pile ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${t.seat===S.seat?'me':''} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora do lugar</em>'}</li>`).join('')}</ol>
   </section>` : '';
   const order=!S.roundOver && pending.length ? `<section class="panel order">
     <div class="row-between"><h2>Ordem da turma</h2><span class="count">${pending.length} na mão</span></div>
-    <p class="lead">Quem tem o menor número vai primeiro. Qualquer um pode mexer.</p>
+    <p class="lead">Quem tem o menor número vai primeiro. Qualquer um pode mexer e, quando todos concordarem, qualquer um pode revelar.</p>
     <ol class="order-list">${pending.map((s,i)=>`<li class="${s===S.seat?'me':''}">
       <span class="pos">${S.table.length+i+1}º</span>
       <span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:''}</span>
       <button class="row-btn" data-act="planMove" data-s="${s}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">${svgStroke(I.up)}</button>
       <button class="row-btn" data-act="planMove" data-s="${s}" data-d="1" ${i===pending.length-1?'disabled':''} aria-label="Descer">${svgStroke(I.down)}</button>
     </li>`).join('')}</ol>
-    ${pending.length>1?`<button class="btn brand" data-act="revealPlan">${svgStroke(I.eye)}Revelar nessa ordem</button>`:''}
+    ${!iPlayed?`<button class="link-btn solo" data-act="playCard">Prefere ir um por um? Baixar só a minha carta agora</button>`:''}
   </section>` : '';
   const result=S.roundOver ? `<section class="panel reveal-panel">
     <p class="eyebrow">${ci<0?'Tema da turma':'Tema'}</p><h2 class="rp-title">${esc(title)}</h2>
@@ -717,14 +729,16 @@ function game(){
     ${roundRuler()}
   </section>` : '';
   const last=S.results.length>=S.rounds;
+  if(!S.roundOver) pending_next=false;
+  if(S.roundOver && nextReadyKey!==key){ nextReadyKey=key; nextReadyAt=Math.max(Date.now(), revealAnimUntil)+2500; pending_next=false; }
+  const wait=S.roundOver && Date.now()<nextReadyAt;
   const dock=S.roundOver
-    ? `<button class="btn brand" data-act="next">${last?'Ver resultado':'Próxima rodada'}</button>`
-    : iPlayed
-      ? `<button class="btn soft" disabled>Sua carta está na mesa</button>`
-      : `<button class="btn outline" data-act="playCard">${svgStroke(I.play)}Baixar só a minha carta</button>`;
+    ? `<button class="btn brand" data-act="next" ${wait||pending_next?'disabled':''}>${pending_next?'Indo…':wait?'Olhem o resultado…':last?'Ver placar final':'Próxima rodada'}</button>`
+    : `<button class="btn brand" data-act="revealPlan">${svgStroke(I.eye)}${pending.length>1?'Revelar nessa ordem':'Revelar a última carta'}</button>`;
   render(`${hostGone?banner():''}${tips}${statusTop(score)}${S.roundOver?'':themeCard}${S.roundOver?'':cardHtml+hintRow}${result}${order}${table}${reactFab()}
     <div class="dock"><div class="dock-inner">${dock}</div></div>`, true, true);
-  const hi=$('#myHint'); hi && hi.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveHint(); } });
+  const hi=$('#myHint'); if(hi){ hi.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveHint(); } }); hi.addEventListener('input',()=>{ drafts.hint={k:key, v:hi.value}; }); }
+  if(S.roundOver && Date.now()<nextReadyAt) setTimeout(()=>{ if(NET.st) showOnline(); }, nextReadyAt-Date.now()+30);
 
   function themeCardWrap(){ return statusTop(score)+themeCard+cardHtml; }
 }
@@ -789,8 +803,8 @@ function showReaction(e, by){
   fx.appendChild(el); setTimeout(()=>el.remove(),2600);
 }
 const myLabel=()=>NET.spectator?'Telão':(S&&S.seat?nameOf(S.seat):(myName||''));
-const reactFab=()=>`<div class="react-fab-wrap"><div class="react-pop" hidden>${EMOJIS.map(e=>`<button data-act="react" data-e="${e}" aria-label="Reagir ${e}">${e}</button>`).join('')}</div>
-  <button class="react-fab" data-act="reactOpen" aria-label="Reagir">${'😀'}</button></div>`;
+const reactFab=()=>`<div class="react-fab-wrap"><div class="react-pop" ${reactOpenState?'':'hidden'}>${EMOJIS.map(e=>`<button data-act="react" data-e="${e}" aria-label="Reagir ${e}">${e}</button>`).join('')}</div>
+  <button class="react-fab ${reactOpenState?'on':''}" data-act="reactOpen" aria-label="Reagir">${reactOpenState?'✕':'😀'}</button></div>`;
 const reactionsBar=()=>`<div class="reactions">${EMOJIS.map(e=>`<button data-act="react" data-e="${e}" aria-label="Reagir ${e}">${e}</button>`).join('')}</div>`;
 
 /* ======================================================================
@@ -820,13 +834,14 @@ function highlights(game){
     const x=hinted.reduce((a,b)=>Math.abs(b.card-50)>Math.abs(a.card-50)?b:a);
     out.push({k:'Dica mais ousada', v:`${nameOf(x.seat)} disse “${x.hint}” com ${x.card}`, sub:x.title});
   }
-  const bad=plays.filter(p=>!p.ok);
+  const bad=logs.flatMap(l=>{ const sorted=l.plays.map(p=>p.card).sort((a,b)=>a-b);
+    return l.plays.map((p,i)=>Object.assign({title:l.title, off:Math.abs(sorted.indexOf(p.card)-i)},p)).filter(p=>!p.ok); });
   if(bad.length){
-    const x=bad.reduce((a,b)=>b.card>a.card?b:a);
-    out.push({k:'Maior surpresa', v:`${nameOf(x.seat)} baixou ${x.card} cedo demais${x.hint?` (“${x.hint}”)`:''}`, sub:x.title});
+    const x=bad.reduce((a,b)=>b.off>a.off?b:a);
+    out.push({k:'Maior surpresa', v:`${nameOf(x.seat)} estava fora do lugar com ${x.card}${x.hint?` (“${x.hint}”)`:''}`, sub:x.title});
     const cnt={}; bad.forEach(p=>cnt[p.seat]=(cnt[p.seat]||0)+1);
     const [seat,n]=Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0];
-    if(n>1) out.push({k:'Furou a fila', v:`${nameOf(+seat)}, ${n} vezes`});
+    if(n>1) out.push({k:'Mais vezes fora do lugar', v:`${nameOf(+seat)}, ${n} vezes`});
   } else if(plays.length){
     out.push({k:'Ninguém furou a fila', v:'Todas as cartas foram na ordem'});
   }
@@ -901,11 +916,17 @@ function ruler(entries, o){
       <svg class="r-lines" width="${LX}" height="${H}">${lines}</svg>
       ${items.map(it=>`<div class="r-dot ${it.ok===false?'bad':''} ${it.gone?'gone':''} ${it.me?'me':''}" style="top:${it.y}px;--i:${it.seq||0}"></div>
         <div class="r-label ${it.ok===false?'bad':''} ${it.gone?'gone':''} ${it.me?'me':''}" style="top:${it.ly}px;--i:${it.seq||0}">
-          <b>${it.card}</b><span class="r-name">${esc(it.name)}${it.order?` <small>${it.order}º</small>`:''}</span>${it.hint?`<i>“${esc(it.hint)}”</i>`:''}${it.ok===false?'<em>fora da ordem</em>':it.gone?'<em>saiu</em>':''}
+          <b>${it.card}</b><span class="r-name">${esc(it.name)}${it.order?` <small>${it.order}º</small>`:''}</span>${it.hint?`<i>“${esc(it.hint)}”</i>`:''}${it.ok===false?'<em>fora do lugar</em>':it.gone?'<em>saiu</em>':''}
         </div>`).join('')}
     </div>
     ${o.high?`<p class="r-cap">100 = ${esc(o.high)}</p>`:''}
+    ${items.some(it=>it.order)?'<p class="r-legend">As cartas estão pelo número. O 1º, 2º, 3º é a ordem que a turma montou.</p>':''}
   </div>`;
+}
+function logRuler(entry, o){
+  const entries=entry.plays.map((p,i)=>({card:p.card, name:nameOf(p.seat), hint:p.hint, ok:p.ok, order:i+1, me:p.seat===S.seat, seq:i}))
+    .concat((entry.held||[]).map(h=>({card:h.card, name:nameOf(h.seat), hint:h.hint, gone:true, seq:entry.plays.length})));
+  return ruler(entries, Object.assign({anim:false, low:entry.low, high:entry.high}, o||{}));
 }
 function roundRuler(o){
   const d=deck(), hints=S.hints||{}, played=new Set(S.table.map(t=>t.seat));
@@ -955,7 +976,7 @@ function tv(){
     </section>
     <section class="tv-table">
       ${S.roundOver?`<h3>Como ficou</h3>${roundRuler({gap:54, min:Math.max(320, Math.min(520, innerHeight-300)), ax:70})}`:`<h3>Na mesa</h3>`}
-      ${S.roundOver?'':S.table.length?`<ol class="pile big ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora da ordem</em>'}</li>`).join('')}
+      ${S.roundOver?'':S.table.length?`<ol class="pile big ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora do lugar</em>'}</li>`).join('')}
         </ol>`:'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
       ${pending.length&&!S.roundOver?`<h3>Ordem da turma</h3><ol class="order-list tv">${pending.map((s,i)=>`<li><span class="pos">${S.table.length+i+1}º</span><span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">pensando…</i>'}</span></li>`).join('')}</ol>`:''}
     </section>
@@ -1008,7 +1029,7 @@ const act={
   retry(){ startGuest(parseCode(NET.code), NET.st, NET.spectator); },
   joinTv(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Digite o código da sala para abrir o telão.'; return; } ls.del(LOCAL_KEY); startGuest(p,null,true); },
   tipsOk(){ ls.set('ito-tips',true); showOnline(); },
-  reactOpen(){ const p=$('.react-pop'); if(p) p.hidden=!p.hidden; },
+  reactOpen(){ reactOpenState=!reactOpenState; const p=$('.react-pop'), f=$('.react-fab'); if(p) p.hidden=!reactOpenState; if(f){ f.textContent=reactOpenState?'✕':'😀'; f.classList.toggle('on',reactOpenState); } },
   async themeMenu(){
     const v=await dialog({title:'Mudar tema', body:'<p>Só dá para mudar antes de alguém baixar uma carta.</p>', actions:[
       {label:svgStroke(I.shuffle)+'Trocar por outro tema', value:'skip'},
@@ -1017,9 +1038,9 @@ const act={
       {label:'Cancelar', value:'no', cls:'text'}]});
     if(v==='skip') act.skip(); else if(v==='voteStart') act.voteStart(); else if(v==='customTheme') act.customTheme();
   },
-  saveHint(){ const i=$('#myHint'); if(!i) return; const text=i.value.trim().slice(0,30); i.blur(); sendAct('hint',{text}); toast(text?'Dica enviada':'Dica apagada'); },
+  saveHint(){ const i=$('#myHint'); if(!i) return; const text=i.value.trim().slice(0,30); i.blur(); delete drafts.hint; sendAct('hint',{text}); toast(text?`Dica enviada: “${text}”`:'Dica apagada'); },
   react(b){ const now=Date.now(); if(now-lastReact<700) return; lastReact=now; const e=b.dataset.e, by=myLabel();
-    showReaction(e, by); SFX.pop(); broadcast({t:'react', e, by, id:Math.random().toString(36).slice(2)}); const p=$('.react-pop'); if(p) p.hidden=true; },
+    showReaction(e, by); SFX.pop(); broadcast({t:'react', e, by, id:Math.random().toString(36).slice(2)}); },
   voteStart(){ sendAct('voteStart'); },
   vote(b){ sendAct('vote',{i:+b.dataset.i}); },
   voteEnd(){ sendAct('voteEnd'); },
@@ -1027,7 +1048,8 @@ const act={
     [o[i],o[j]]=[o[j],o[i]]; S.plan=o; game(); sendAct('plan',{order:o}); },
   async revealPlan(){
     const o=planOrder();
-    if(!await confirmBox('Revelar nessa ordem?', `<ol class="confirm-order">${o.map(s=>`<li>${esc(nameOf(s))}${S.hints[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join('')}</ol>Todas as cartas vão para a mesa nessa sequência.`, 'Revelar')) return;
+    if(!o.length) return;
+    if(!await confirmBox(o.length>1?'Todos concordam com a ordem?':'Revelar a última carta?', `<ol class="confirm-order">${o.map(s=>`<li>${esc(nameOf(s))}${S.hints[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join('')}</ol>Todas as cartas vão para a mesa nessa sequência.`, 'Revelar')) return;
     sendAct('reveal',{order:o});
   },
   toggleSound(){ soundOn=!soundOn; ls.set('ito-sound',soundOn); if(soundOn){ audio(); SFX.pop(); } toast(soundOn?'Sons ligados':'Sons desligados'); },
@@ -1055,7 +1077,7 @@ const act={
   },
   saveName(){
     const inp=$('#myName'); if(!inp) return;
-    myName=inp.value.trim().slice(0,20); ls.set('ito-name',myName); inp.blur();
+    myName=inp.value.trim().slice(0,20); ls.set('ito-name',myName); inp.blur(); delete drafts.name;
     if(NET.role==='host'){ const me=NET.st.players.find(p=>p.cid===CID); if(me){ me.name=myName; hostCommit(); } }
     else if(NET.role==='guest') sendToCid(NET.st&&NET.st.hostCid, {t:'name', name:myName});
     toast(myName?`Pronto, ${myName}`:'Nome removido');
@@ -1092,7 +1114,7 @@ const act={
     if(!await confirmBox('Baixar sua carta?',`Sua carta <b>${mine}</b> vai para a mesa e todos vão ver.`,'Baixar')) return;
     sendAct('play');
   },
-  next(){ sendAct('next'); },
+  next(){ if(Date.now()<nextReadyAt) return; pending_next=true; showOnline(); sendAct('next'); setTimeout(()=>{ if(pending_next){ pending_next=false; showOnline(); } }, 4000); },
   async customTheme(){
     const v=await dialog({title:'Escrever tema', body:`<p>Crie um tema só para esta rodada.</p>
       <label class="fld">Tema<input id="ctTitle" maxlength="60" placeholder="Ex.: Coisas que o tio fala no churrasco"></label>
