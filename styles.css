@@ -105,21 +105,11 @@ button{cursor:pointer}
 /* Room */
 .room-code{text-align:center;padding:26px 20px 20px}
 .room-code .code{font:800 clamp(30px,10vw,44px)/1 var(--display);letter-spacing:.06em;margin:4px 0 18px;white-space:nowrap}
-.seats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
-.seats button{aspect-ratio:1;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--radius-sm);font:800 22px/1 var(--display);transition:transform .08s}
-.seats button:active{transform:scale(.94);background:var(--brand);color:var(--brand-ink)}
 
 /* Game */
 .statusbar{display:flex;align-items:center;gap:8px;margin:4px 0 14px}
 .pill{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
 .pill .k{color:var(--ink-2);font-weight:400}
-.lives{margin-left:auto;display:flex;gap:4px}
-.lives svg{width:20px;height:20px}
-.lives .on{fill:var(--brand)}
-.lives .off{fill:none;stroke:var(--line);stroke-width:2}
-.levels{display:flex;gap:4px}
-.levels i{width:16px;height:6px;border-radius:3px;background:var(--line)}
-.levels i.on{background:var(--ink)}
 
 .theme{position:relative;overflow:hidden;padding:22px 20px 20px}
 .theme h2{font:800 28px/1.1 var(--display);letter-spacing:-.02em;margin:0 0 18px}
@@ -156,16 +146,6 @@ button{cursor:pointer}
 .end-state .badge svg{width:34px;height:34px}
 .end-state h2{font:800 30px/1.1 var(--display);letter-spacing:-.02em;margin:0 0 6px}
 .end-state p{margin:0 0 22px;color:var(--ink-2)}
-
-/* Reveal list */
-.thread-list{list-style:none;margin:6px 0 0;padding:0 0 0 22px;position:relative}
-.thread-list::before{content:"";position:absolute;left:7px;top:14px;bottom:14px;width:2px;background:var(--brand);border-radius:2px}
-.thread-list li{position:relative;display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)}
-.thread-list li:last-child{border-bottom:0}
-.thread-list li::before{content:"";position:absolute;left:-19px;width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--brand)}
-.thread-list li.me::before{background:var(--brand)}
-.thread-list li.me{font-weight:600}
-.thread-list strong{font:800 20px/1 var(--display);font-variant-numeric:tabular-nums}
 
 /* Sheets & modals */
 dialog{border:0;padding:0;color:var(--ink);background:var(--surface)}
@@ -219,9 +199,6 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 .cat.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 .cat.on small{background:color-mix(in srgb,var(--bg) 18%,transparent);color:var(--bg)}
 .btn:disabled{opacity:.4;pointer-events:none}
-.room-cats{font-size:13px;color:var(--ink-2);margin:-8px 0 18px}
-
-.theme-top .eyebrow{margin:0}
 .theme h2{margin-top:8px}
 
 /* Criar sala */
@@ -230,12 +207,6 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 .cat-head .label{margin:0}
 .field-group .stepper{margin-bottom:0}
 .field-group .cats{margin-bottom:0}
-.names{margin-top:10px;font-size:15px;color:var(--ink)}
-.names summary{list-style:none;display:flex;align-items:center;gap:8px;padding:10px 2px;font-weight:600;color:var(--brand);cursor:pointer}
-.names summary::-webkit-details-marker{display:none}
-.names summary::before{content:"+";display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--brand-soft);color:var(--brand);font-size:16px;line-height:1}
-.names[open] summary::before{content:"−"}
-.names summary span{font-weight:400;color:var(--ink-2);font-size:13px}
 .name-list{display:grid;gap:8px;padding-top:4px}
 .name-input{width:100%;height:48px;border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:0 14px;font:400 16px var(--font)}
 .name-input:focus{outline:none;border-color:var(--brand);background:var(--surface)}
@@ -243,12 +214,6 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 
 /* Sala */
 .room-info{font-size:13px;color:var(--ink-2);margin:-8px 0 18px;line-height:1.5}
-.players{display:grid;gap:8px}
-.player{display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--radius-sm);text-align:left;transition:transform .08s}
-.player:active{transform:scale(.98);border-color:var(--brand)}
-.player .num{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:var(--surface);font:800 15px/1 var(--display);flex:none}
-.player .nm{flex:1;font-weight:600;font-size:17px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.player svg{width:18px;height:18px;color:var(--ink-2)}
 
 /* Progresso e placar */
 .statusbar{justify-content:space-between}
@@ -299,8 +264,6 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 .banner svg{width:18px;height:18px;color:var(--brand);flex:none}
 .banner span{flex:1}
 .banner button{border:0;background:none;color:var(--brand);font-weight:600;font-size:13px;padding:4px;white-space:nowrap}
-.mode-note{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;margin:4px 0 14px;border-radius:var(--radius-sm);background:var(--surface-2);font-size:13px;color:var(--ink-2)}
-.mode-note svg{width:18px;height:18px;flex:none;margin-top:1px}
 .whose{text-align:center;margin:22px 0 -12px;font-size:14px;font-weight:600;color:var(--ink-2)}
 
 /* v1.3 — mesa, QR, placar, controles */
@@ -324,7 +287,6 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 .pile li.gone{border-style:dashed;border-color:var(--line);opacity:.7}
 .pile li.gone em{color:var(--ink-2)}
 .empty{margin:0;color:var(--ink-2);font-size:14px}
-.missing{margin:12px 0 0;font-size:13px;color:var(--ink-2)}
 .card.played .face{opacity:.6}
 
 .result{display:flex;align-items:center;gap:10px;justify-content:center;margin:0 0 10px;font-weight:600;font-size:15px}
@@ -353,7 +315,6 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 .cbody{margin:0 0 4px}
 .confirm-order{margin:4px 0 12px;padding-left:22px;color:var(--ink)}
 .confirm-order li{margin:4px 0}
-.hint-box .name-row .btn{min-width:96px}
 .reactions{display:flex;justify-content:center;gap:6px;margin:4px 0 14px;flex-wrap:wrap}
 .reactions button{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:var(--surface);font-size:22px;line-height:1;display:grid;place-items:center;transition:transform .1s}
 .reactions button:active{transform:scale(.88)}

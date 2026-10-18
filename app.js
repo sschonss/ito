@@ -1,6 +1,6 @@
 'use strict';
-const VERSION = '1.8.0';
-const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
+const VERSION = '1.9.0';
+const MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
 const CATS = [
@@ -80,7 +80,6 @@ const I = {
   copy:'<svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>',
   book:'<svg viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM4 21V5M9 7h6"/></svg>',
   refresh:'<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>',
-  sliders:'<svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>',
   eye:'<svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   exit:'<svg viewBox="0 0 24 24"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg>',
   download:'<svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>',
@@ -88,7 +87,6 @@ const I = {
   chevron:'<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
   check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
   x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
-  heart:'<svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.5-9.3C1 8.2 3.3 4.5 7 4.5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 3.7 0 6 3.7 4.5 7.2C19.5 16.4 12 21 12 21z"/></svg>',
   thread:'<svg viewBox="0 0 40 16"><path d="M2 10c6-6 10 4 17-2s11 2 15-1" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="35" cy="7" r="3" fill="currentColor"/></svg>',
   trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4"/></svg>',
   broken:'<svg viewBox="0 0 24 24" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linejoin="round"><path d="M12 21s-7.5-4.6-9.5-9.3C1 8.2 3.3 4.5 7 4.5c2 0 3.6 1.1 5 3l-2 4 3 2-1.5 4M12 7.5c1.4-1.9 3-3 5-3 3.7 0 6 3.7 4.5 7.2C19.5 16.4 12 21 12 21"/></svg>'
@@ -119,7 +117,7 @@ const ls = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} },
   del(k){ try{ localStorage.removeItem(k); }catch(e){} }
 };
-const LOCAL_KEY='ito-game-v2', ONLINE_KEY='ito-online';
+const ONLINE_KEY='ito-online';
 const CID=(()=>{ let c=ls.get('ito-cid',null); if(!c){ c=[...crypto.getRandomValues(new Uint32Array(2))].map(x=>x.toString(36)).join(''); ls.set('ito-cid',c); } return c; })();
 let myName=ls.get('ito-name','');
 
@@ -156,17 +154,33 @@ const theme=()=>themeOf(S);
 const L24='ABCDEFGHJKLMNPQRSTUVWXYZ';
 const MASK_BITS=14;   // até 14 categorias no código da sala
 function enc(n,rounds,mask){ let v=(rounds-1)*(1<<MASK_BITS)+mask, s=''; for(let i=0;i<4;i++){ s=L24[v%24]+s; v=Math.floor(v/24); } return s; }
-function parseCode(raw){
+/* Formato do código: a versão vai no link (#ABCD-EFGH~v2), assim mudanças futuras
+   não quebram convites antigos. Código digitado = formato atual. */
+const CODE_VERSION=2;
+function parseCode(raw, ver){
   const s=(raw||'').trim().toUpperCase().replace(/[^A-Z]/g,'');
   if(s.length!==8 || [...s].some(c=>!L24.includes(c))) return null;
   let v=0; for(const c of s.slice(4)) v=v*24+L24.indexOf(c);
-  const mask=v%(1<<MASK_BITS), rounds=Math.floor(v/(1<<MASK_BITS))+1;
-  if(rounds<MIN_ROUNDS || rounds>MAX_ROUNDS || !(mask&ALL_MASK)) return null;
-  return { code:s.slice(0,4)+'-'+s.slice(4), n:10, rounds, mask:mask&ALL_MASK };
+  const code=s.slice(0,4)+'-'+s.slice(4);
+  const v2=()=>{ const mask=v%(1<<MASK_BITS), rounds=Math.floor(v/(1<<MASK_BITS))+1;
+    return rounds>=MIN_ROUNDS && rounds<=MAX_ROUNDS && (mask&ALL_MASK) ? {code, n:10, rounds, mask:mask&ALL_MASK, ver:2} : null; };
+  const v1=()=>{ const mask=v%256, r=Math.floor(v/256), rounds=r%MAX_ROUNDS+1, n=Math.floor(r/MAX_ROUNDS)+2;   // formato até a versão 1.7
+    return n>=2 && n<=10 && (mask&ALL_MASK) ? {code, n:10, rounds, mask:mask&255&ALL_MASK, ver:1} : null; };
+  if(ver===1) return v1();
+  if(ver===2) return v2();
+  return v2() || v1();
 }
-const parseHash=h=>parseCode(decodeURIComponent((h||'').replace(/^#/,'').split('~')[0]));
+/* #ABCD-EFGH~v2~kFINGERPRINT  (k = impressão da chave do dono da sala, ver "estados assinados") */
+function parseHash(h){
+  const parts=decodeURIComponent((h||'').replace(/^#/,'')).split('~');
+  const vp=parts.find(x=>/^v\d+$/.test(x)), kp=parts.find(x=>/^k[0-9a-z]{6,}$/.test(x));
+  const room=parseCode(parts[0], vp?+vp.slice(1):undefined);
+  if(room && kp) room.fp=kp.slice(1);
+  return room;
+}
 function newRoom(){ const v=new Uint32Array(4); crypto.getRandomValues(v); return parseCode([...v].map(x=>L24[x%24]).join('')+enc(draft.players,draft.rounds,draft.mask)); }
-const roomLink=code=>location.origin+location.pathname+'#'+code;
+function roomHash(code){ const fp=NET.ownerFp||''; return '#'+code+'~v'+CODE_VERSION+(fp?'~k'+fp:''); }
+const roomLink=code=>location.origin+location.pathname+roomHash(code);
 const catNames=mask=>mask===ALL_MASK?'Todas as categorias':CATS.filter((_,i)=>mask&(1<<i)).map(c=>c.name).join(' · ');
 const nameOf=p=>(S && S.names && S.names[p-1]) || `Jogador ${p}`;
 
@@ -222,7 +236,7 @@ function catChips(){
 function home(keep){
   const typed=keep && $('#code') ? $('#code').value : '';
   S=null; P=null; setMeta(''); document.body.classList.remove('tv');
-  ls.del(LOCAL_KEY);
+  ls.del('ito-game-v2');   // dados do antigo modo sem conexão
   const online=ls.get(ONLINE_KEY,null), pass=ls.get(PASS_KEY,null);
   const resume= pass && pass.mode==='pass' && !online ? `<button class="resume" data-act="passResume"><span class="dot"></span>
       <span><strong>Continuar no celular</strong><span>${esc(pass.names.filter(Boolean).slice(0,3).join(', ')||'Partida')} · rodada ${Math.min(pass.round,pass.rounds)} de ${pass.rounds}</span></span>${svgStroke(I.chevron)}</button>` : online?`<button class="resume" data-act="resume"><span class="dot"></span>
@@ -472,16 +486,21 @@ const activeSeats=st=>st.players.filter(p=>p.on).map(p=>p.seat);
 function checkRoundOver(st){
   if(st.phase!=='play' || st.roundOver || !st.table.length) return;
   const played=new Set(st.table.map(t=>t.seat));
-  if(activeSeats(st).every(s=>played.has(s))){
-    st.roundOver=true;
-    markOutOfPlace(st.table);
-    st.results.push(st.table.every(t=>t.ok)?1:0);
-    const [title,low,high]=themeOf(st), d=deckFor(st.code,st.game,st.round);
-    st.log=(st.log||[]).concat({game:st.game, round:st.round, title, low, high,
-      plays:st.table.map(t=>({seat:t.seat, card:t.card, ok:t.ok, hint:(st.hints||{})[t.seat]||''})),
-      held:st.players.filter(p=>!played.has(p.seat)).map(p=>({seat:p.seat, card:d[p.seat-1], hint:(st.hints||{})[p.seat]||''}))}).slice(-60);
-    st.vote=null;
-  }
+  if(activeSeats(st).every(s=>played.has(s))) finishRound(st, st.players.map(p=>p.seat));
+}
+/* Fim de rodada — a mesma regra para a sala conectada e para o celular só.
+   Marca quem ficou fora do lugar, soma o resultado e guarda o registro da rodada.
+   O registro guarda só a partida atual, para o estado não crescer a noite toda. */
+function finishRound(st, seats){
+  const played=new Set(st.table.map(t=>t.seat)), d=deckFor(st.code,st.game,st.round), hints=st.hints||{};
+  st.roundOver=true;
+  markOutOfPlace(st.table);
+  st.results.push(st.table.every(t=>t.ok)?1:0);
+  const [title,low,high]=themeOf(st);
+  st.log=(st.log||[]).filter(l=>l.game===st.game).concat({game:st.game, round:st.round, title, low, high,
+    plays:st.table.map(t=>({seat:t.seat, card:t.card, ok:t.ok, hint:hints[t.seat]||''})),
+    held:seats.filter(s=>!played.has(s)).map(s=>({seat:s, card:d[s-1], hint:hints[s]||''}))});
+  st.vote=null;
 }
 /* Ações que só o anfitrião pode fazer */
 const HOST_ONLY=new Set(['start','reveal','next','restart','voteStart','voteEnd','skip','custom','kick','move']);
@@ -541,7 +560,7 @@ function applyAct(st, a, by){
     setEv(st,'custom',by); return true;
   }
   if(a.t==='restart' && st.phase==='done' && a.game===st.game){
-    st.game++; st.round=1; st.results=[]; st.themePos=nextThemePos(st); st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[];
+    st.game++; st.round=1; st.results=[]; st.themePos=nextThemePos(st); st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[]; st.log=[];
     setEv(st,'restart',by); return true;
   }
   if(st.phase==='lobby' && (a.t==='kick' || a.t==='move')){
@@ -606,13 +625,13 @@ function startHost(room, saved){
     game:1, round:1, results:[], themePos:0, table:[], roundOver:false, custom:null, history:[], ev:null, hints:{}, log:[], vote:null };
   NET.st.ownerCid=NET.st.ownerCid||CID;
   if(!saved){ NET.st.players.forEach(p=>p.on=p.cid===CID); const me=NET.st.players.find(p=>p.cid===CID); if(me && myName) me.name=myName; }
-  history.replaceState(null,'','#'+NET.st.code);
+  history.replaceState(null,'',roomHash(NET.st.code));
   saveOnline(); connect(NET.st.code);
 }
 function startGuest(room, saved, spectator){
   netReset(); NET.role='guest'; NET.spectator=!!spectator; lastEv=''; P=room;
   if(saved) NET.st=saved;                  // última versão conhecida (ajuda se o anfitrião não voltar)
-  history.replaceState(null,'','#'+room.code);
+  history.replaceState(null,'',roomHash(room.code));
   saveOnline(); connect(room.code);
   if(saved) hostLost();
 }
@@ -1092,20 +1111,19 @@ const act={
   goHome(){ if(S||NET.role) return; history.replaceState(null,'',location.pathname); home(); },
   openMenu,
   step(b){ const k=b.dataset.k, d=+b.dataset.d;
-    if(k==='players') draft.players=Math.min(10,Math.max(2,draft.players+d));
     if(k==='rounds') draft.rounds=Math.min(MAX_ROUNDS,Math.max(MIN_ROUNDS,draft.rounds+d));
     reDraft(); },
   toggleCat(b){ draft.mask^=(1<<+b.dataset.v); reDraft(); },
   allCats(){ draft.mask=draft.mask===ALL_MASK?0:ALL_MASK; reDraft(); },
-  create(){ if(!draft.mask) return; ls.del(LOCAL_KEY); startHost(newRoom()); },
-  join(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Código não encontrado. Confira as 8 letras.'; return; } ls.del(LOCAL_KEY); startGuest(p); },
+  create(){ if(!draft.mask) return; startHost(newRoom()); },
+  join(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Código não encontrado. Confira as 8 letras.'; return; } startGuest(p); },
   resume(){
     const online=ls.get(ONLINE_KEY,null);
     if(online){ const r=parseCode(online.code); if(r){ online.role==='host'?startHost(r,online.st):startGuest(r,online.st,online.role==='tv'); return; } }
     home();
   },
   retry(){ startGuest(parseCode(NET.code), NET.st, NET.spectator); },
-  joinTv(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Digite o código da sala para abrir o telão.'; return; } ls.del(LOCAL_KEY); startGuest(p,null,true); },
+  joinTv(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Digite o código da sala para abrir o telão.'; return; } startGuest(p,null,true); },
   tipsOk(){ ls.set('ito-tips',true); showOnline(); },
   reactOpen(){ reactOpenState=!reactOpenState; const p=$('.react-pop'), f=$('.react-fab'); if(p) p.hidden=!reactOpenState; if(f){ f.textContent=reactOpenState?'✕':'😀'; f.classList.toggle('on',reactOpenState); } },
   async themeMenu(){
@@ -1219,7 +1237,7 @@ const act={
       if(!NET.spectator && NET.st && NET.st.phase!=='lobby' && !await confirmBox('Sair da sala?','Você pode voltar depois pelo mesmo link.','Sair')) return;
       if(NET.st) sendToCid(NET.st.hostCid,{t:'bye'}); await new Promise(r=>setTimeout(r,150));
     } else if(S && S.status==='play' && !await confirmBox('Sair da sala?','O progresso desta partida será apagado deste celular.','Sair')) return;
-    netReset(); ls.del(ONLINE_KEY); ls.del(LOCAL_KEY); S=null; P=null;
+    netReset(); ls.del(ONLINE_KEY); S=null; P=null;
     history.replaceState(null,'',location.pathname); home();
   },
   async install(){ if(!installEvt) return; installEvt.prompt(); try{ await installEvt.userChoice; }catch(e){} installEvt=null; if(!S && !P && !NET.role) home(true); },
@@ -1424,12 +1442,10 @@ Object.assign(act,{
   async passReveal(){
     const o=passOrder();
     if(!await confirmBox('Todos concordam com a ordem?', `<ol class="confirm-order">${o.map(s=>`<li>${esc(passName(s))}${(S.hints||{})[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join('')}</ol>As cartas vão virar nessa sequência.`, 'Revelar')) return;
-    const d=deck(), hints=S.hints||{};
-    S.table=o.map(seat=>({seat, card:d[seat-1], ok:true})); markOutOfPlace(S.table);
-    S.results.push(S.table.every(t=>t.ok)?1:0);
-    const [title,low,high]=theme();
-    S.log=(S.log||[]).concat({game:S.game, round:S.round, title, low, high, plays:S.table.map(t=>({seat:t.seat, card:t.card, ok:t.ok, hint:hints[t.seat]||''})), held:[]}).slice(-60);
-    S.phase='reveal'; S.roundOver=true; savePass();
+    const d=deck();
+    S.table=o.map(seat=>({seat, card:d[seat-1], ok:true}));
+    finishRound(S, o);
+    S.phase='reveal'; savePass();
     revealFrom=0; revealAnimUntil=Date.now()+S.table.length*450+900; rulerAnimKey='';
     S.table.forEach((t,i)=>setTimeout(()=>{ t.ok?SFX.card():(SFX.bad(),vibrate(80)); }, i*450+150));
     const okAll=S.table.every(t=>t.ok);
@@ -1445,7 +1461,7 @@ Object.assign(act,{
     } else { S.round++; S.themePos=nextThemePos(S); passNewRound(); }
     savePass(); passRender(); window.scrollTo({top:0});
   },
-  passRestart(){ S.game++; S.round=1; S.results=[]; S.status='play'; S.themePos=nextThemePos(S); passNewRound(); savePass(); passRender(); },
+  passRestart(){ S.game++; S.round=1; S.results=[]; S.status='play'; S.log=[]; S.themePos=nextThemePos(S); passNewRound(); savePass(); passRender(); },
   async passQuit(){
     if(S && S.mode==='pass' && S.phase!=='done' && !await confirmBox('Sair da partida?','O progresso desta partida será apagado.','Sair')) return;
     ls.del(PASS_KEY); S=null; history.replaceState(null,'',location.pathname); home();

@@ -47,6 +47,18 @@ class TestBasics(E2E):
         self.assertEqual(await p.js("CATS.filter(c=>c.group==='Temáticos').map(c=>c.name)"), ['Futebol', 'Tecnologia'])
         self.assertLessEqual(await p.js("CATS.length"), await p.js("MASK_BITS"), 'categorias cabem no código da sala')
 
+    async def test_links_antigos_e_novos_continuam_abrindo(self):
+        p = await self.phone('Ana'); await p.goto()
+        r = await p.js("""() => {
+          const v1 = (n,r,m)=>{ let v=((n-2)*20+(r-1))*256+m, s=''; for(let i=0;i<4;i++){ s=L24[v%24]+s; v=Math.floor(v/24); } return s; };
+          const old = parseHash('#KQXT-'+v1(4,5,3)+'~v1');        // convite antigo marcado como v1
+          const cur = parseHash('#KQXT-'+enc(10,7,1<<12)+'~v2~kabc12345');
+          return {old:[old.rounds, old.mask, old.ver], cur:[cur.rounds, cur.mask, cur.ver, cur.fp], link: roomHash('KQXT-AAAA').startsWith('#KQXT-AAAA~v2')};
+        }""")
+        self.assertEqual(r['old'], [5, 3, 1])
+        self.assertEqual(r['cur'], [7, 1 << 12, 2, 'abc12345'])
+        self.assertTrue(r['link'], 'link novo leva a versão')
+
     async def test_codigo_invalido_mostra_erro(self):
         p = await self.phone('Ana'); await p.goto()
         await p.page.fill('#code', 'XYZ'); await p.act('join')
