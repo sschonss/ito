@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -453,13 +453,18 @@ function applyAct(st, a, by){
   }
   return false;
 }
-/* Marca como erradas só as cartas fora do lugar: mantém a maior sequência crescente */
+/* Marca como erradas só as cartas fora do lugar: mantém a maior sequência crescente.
+   Se houver empate, mantém a que usa as cartas menores, ou seja, marca quem foi cedo demais
+   (regra do ito: errou quem baixou enquanto alguém tinha carta menor). */
 function markOutOfPlace(table){
-  const a=table.map(t=>t.card), n=a.length, len=Array(n).fill(1), prev=Array(n).fill(-1);
-  for(let i=0;i<n;i++) for(let j=0;j<i;j++) if(a[j]<a[i] && len[j]+1>len[i]){ len[i]=len[j]+1; prev[i]=j; }
-  let best=0; for(let i=1;i<n;i++) if(len[i]>len[best]) best=i;
-  const keep=new Set(); for(let i=n?best:-1;i>=0;i=prev[i]) keep.add(i);
-  table.forEach((t,i)=>t.ok=keep.has(i));
+  const a=table.map(t=>t.card), n=a.length;
+  let best=null, bestLen=-1, bestSum=Infinity;
+  for(let m=0;m<(1<<n);m++){
+    let last=-1, len=0, sum=0, ok=true;
+    for(let i=0;i<n;i++) if(m&(1<<i)){ if(a[i]<=last){ ok=false; break; } last=a[i]; len++; sum+=a[i]; }
+    if(ok && (len>bestLen || (len===bestLen && sum<bestSum))){ best=m; bestLen=len; bestSum=sum; }
+  }
+  table.forEach((t,i)=>t.ok=!!(best&(1<<i)));
 }
 function playSeat(st, seat){
   const d=deckFor(st.code,st.game,st.round), card=d[seat-1], played=new Set(st.table.map(t=>t.seat));

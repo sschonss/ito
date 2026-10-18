@@ -51,7 +51,8 @@ class TestBasics(E2E):
 
     async def test_marca_so_a_carta_fora_do_lugar(self):
         p = await self.phone('Ana'); await p.goto()
-        cases = {(30, 44, 20): [20], (10, 20, 30): [], (50, 10, 60, 70): [10], (98, 36, 25): [36, 25]}
+        cases = {(98, 11): [98], (30, 44, 20): [20], (10, 20, 30): [], (50, 10, 60, 70): [50],
+                 (98, 36, 25): [98, 36], (40, 60, 50): [60]}
         for cards, expected in cases.items():
             bad = await p.js("c=>{ const t=c.map(card=>({card})); markOutOfPlace(t); return t.filter(x=>!x.ok).map(x=>x.card); }", list(cards))
             self.assertEqual(bad, expected, cards)
