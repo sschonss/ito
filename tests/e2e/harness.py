@@ -34,6 +34,7 @@ class Relay:
     """Entrega mensagens entre os celulares, separando as duas redes."""
     def __init__(self):
         self.rooms = {}
+        self.lose_states_to = set()   # celulares que "perdem" as atualizações de estado (simula rede ruim)
 
     async def _deliver(self, page, kind, t, f, n=None, d=None):
         try:
@@ -57,7 +58,9 @@ class Relay:
         targets = to if isinstance(to, list) else ([to] if to else [p for p in r if p != msg['from']])
         data = json.loads(json.dumps(msg['data']))
         for pid in targets:
-            if pid in r: asyncio.ensure_future(self._deliver(r[pid], msg['kind'], 'msg', msg['from'], msg['name'], data))
+            if pid not in r: continue
+            if r[pid] in self.lose_states_to and isinstance(data, dict) and data.get('t') == 'state': continue
+            asyncio.ensure_future(self._deliver(r[pid], msg['kind'], 'msg', msg['from'], msg['name'], data))
 
     def drop(self, page):
         """Simula o celular perdendo a conexão (fechou o app, acabou a bateria)."""

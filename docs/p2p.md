@@ -2,7 +2,7 @@
 
 O ito roda só com o **GitHub Pages**, que serve arquivos estáticos (HTML, CSS, JS) e não executa nada no servidor. Mesmo assim, vários celulares jogam juntos em tempo real. Este documento explica como isso foi feito.
 
-**Resumo:** os celulares conversam **direto entre si** por WebRTC. Para se encontrarem pela primeira vez, usam **redes públicas e gratuitas de sinalização** (Nostr e MQTT) por meio da biblioteca [Trystero](https://github.com/dmotz/trystero). Quem cria a sala vira o **anfitrião**: ele guarda o estado oficial da partida e avisa os outros a cada mudança. As cartas não trafegam pela rede, porque cada celular calcula as mesmas cartas a partir do código da sala.
+**Resumo:** os celulares conversam **direto entre si** por WebRTC. Para se encontrarem pela primeira vez, usam **redes públicas e gratuitas de sinalização** (Nostr e MQTT) por meio da biblioteca [Trystero](https://github.com/dmotz/trystero). Quem cria a sala vira o **anfitrião** e é a **única fonte da verdade**: só ele altera o estado da partida, avisa os outros a cada mudança e confere a cada 2 segundos se todos estão iguais a ele. As cartas não trafegam pela rede, porque cada celular calcula as mesmas cartas a partir do código da sala.
 
 ---
 
@@ -143,7 +143,7 @@ function enc(n, rounds, mask) { ... }      // → 4 letras
 function parseCode(raw) { ... }            // → { code, n, rounds, mask }
 ```
 
-Assim, quem digita o código já sabe tudo da sala, e o plano B (modo sem conexão) funciona mesmo sem rede.
+Assim, quem digita o código já sabe as regras da sala antes mesmo de conectar.
 
 ```mermaid
 flowchart LR
@@ -209,7 +209,7 @@ sequenceDiagram
 ```js
 {
   code, rounds, mask,             // configuração da sala
-  hostCid, ver,                   // quem é o anfitrião e a versão do estado
+  ownerCid, hostCid, ver,         // dono da sala, quem comanda agora e a versão do estado
   players: [{seat, cid, name, on}],
   phase: 'lobby' | 'play' | 'done',
   game, round, results, themePos, // andamento
@@ -227,7 +227,10 @@ Cada mudança aumenta `ver`, e o anfitrião envia o estado inteiro para todos (`
 |---|---|---|
 | `hello {cid, name, spectator}` | todos → todos | Apresentação. O anfitrião dá um lugar, o telão (`spectator`) só assiste |
 | `state {st}` | anfitrião → todos | Estado oficial completo |
-| `act {a}` | convidado → anfitrião | Pedido de ação: `start`, `play`, `plan`, `reveal`, `next`, `skip`, `custom`, `voteStart`, `vote`, `voteEnd`, `hint`, `restart`, `kick`, `move` |
+| `act {a}` | convidado → anfitrião | Pedido de ação dos jogadores: `play` (baixar a própria carta), `plan` (arrumar a ordem), `vote`, `hint` |
+| `ack {ver, h}` | convidado → anfitrião | "Recebi a versão `ver`, com impressão digital `h`" |
+| `tick {ver, h}` | anfitrião → todos | Conferência a cada 2 s: versão e impressão digital do estado oficial |
+| `pull` | convidado → anfitrião | "Estou diferente, me manda o estado de novo" |
 | `name {name}` | convidado → anfitrião | Mudou o nome |
 | `bye` | convidado → anfitrião | Saiu da sala |
 | `react {e, by, id}` | qualquer → todos | Reação com emoji (não passa pelo estado) |
@@ -247,20 +250,46 @@ flowchart LR
 
 ```mermaid
 stateDiagram-v2
-  [*] --> lobby: anfitrião cria a sala
+  [*] --> lobby: dono cria a sala
   lobby --> lobby: hello · name · kick · move
-  lobby --> jogando: start (só o anfitrião)
+  lobby --> jogando: start (anfitrião)
   state jogando {
     [*] --> rodada
-    rodada --> rodada: hint · plan · skip · custom · vote
+    rodada --> rodada: hint · plan · vote · skip · custom · voteStart
     rodada --> rodada: play (uma carta)
-    rodada --> revelada: reveal ou última carta jogada
-    revelada --> rodada: next (round + 1)
+    rodada --> revelada: reveal (anfitrião) ou última carta jogada
+    revelada --> rodada: next (anfitrião)
   }
   jogando --> fim: next na última rodada
-  fim --> jogando: restart (game + 1)
+  fim --> jogando: restart (anfitrião)
   fim --> [*]: encerrar sala
 ```
+
+### Só o anfitrião comanda
+
+`start`, `reveal`, `next`, `restart`, `voteStart`, `voteEnd`, `skip`, `custom`, `kick` e `move` só são aceitos quando vêm do anfitrião (`HOST_ONLY` em `applyAct()`). Na tela, os convidados veem "Esperando Luiz revelar" ou "Esperando Luiz passar a rodada" no lugar desses botões. Os jogadores continuam podendo baixar a própria carta, arrumar a ordem da turma, votar, dar dica e reagir.
+
+### Conferência de sincronia
+
+```mermaid
+sequenceDiagram
+  participant H as 📱 Anfitrião
+  participant G as 📱 Convidado
+  H-->>G: state {ver 14}
+  G->>H: ack {ver 14, h: a1b2}
+  Note over H,G: a cada 2 segundos
+  H-->>G: tick {ver 15, h: c3d4}
+  alt convidado diferente (perdeu a ver 15)
+    G->>H: pull
+    H-->>G: state {ver 15} (forçado)
+    G->>H: ack {ver 15, h: c3d4}
+  else igual
+    Note over G: nada a fazer
+  end
+  Note over H: quem não confirmou a versão atual recebe o estado de novo
+```
+
+A impressão digital (`stateHash`) é um hash do estado inteiro. Se um único detalhe estiver diferente, o convidado pede o estado de novo. Isso corrige mensagens perdidas pela rede sem ninguém perceber.
 
 ### Toques ao mesmo tempo contam uma vez
 
@@ -285,33 +314,34 @@ flowchart TD
   B --> C{Voltou em 5 s?}
   C -- sim --> D[Segue normal]
   C -- não --> E[Quem tem o menor lugar<br/>entre os conectados?]
-  E -- sou eu e recebi o estado atual --> F[Viro anfitrião:<br/>hostCid = eu, ver + 1]
+  E -- sou eu e recebi o estado atual --> F[Viro anfitrião provisório:<br/>hostCid = eu, ver + 1]
   E -- outra pessoa --> G[Espero o estado dela]
   F --> H[Envio o estado para todos]
 ```
 
 - Só assume quem recebeu o estado **nesta sessão** (`NET.fresh`). Isso impede que um celular que acabou de recarregar, com estado velho, tome o controle.
-- Se o antigo anfitrião voltar, ele recebe um estado com `ver` maior e outro `hostCid`, e **vira convidado** automaticamente.
-- Em caso de empate de versão, vence o menor `hostCid`, para não ficar trocando.
+- Quem assume é um **anfitrião provisório**. O dono da sala (`ownerCid`, quem criou) continua sendo o anfitrião de verdade.
+- Quando o dono volta, ele espera alguns segundos (`RECLAIM_WAIT`), pega o estado mais novo do provisório (nada se perde) e **reassume**. O provisório vira jogador de novo.
+- Em caso de empate de versão, vale o estado do dono da sala.
 - Quem não está conectado sai da conta da rodada (as cartas dele não bloqueiam o fim da rodada).
 
-### Quando o antigo anfitrião volta
+### Quando o dono da sala volta
 
 ```mermaid
 sequenceDiagram
-  participant L as 📱 Luiz (anfitrião antigo)
-  participant A as 📱 Ana (nova anfitriã)
+  participant L as 📱 Luiz (dono)
+  participant A as 📱 Ana (provisória)
   participant P as 📱 Pedro
   Note over L: celular caiu na rodada 2
-  A->>A: assume após 5 s<br/>hostCid = Ana, ver 20 → 21
-  A-->>P: state {ver 21, hostCid Ana}
-  Note over L: Luiz reabre o app<br/>(estado salvo: ver 20, hostCid Luiz)
-  L->>A: state {ver 20}
-  A->>A: newerState? não → ignora
-  A-->>L: state {ver 21, hostCid Ana}
-  L->>L: versão maior e outro anfitrião<br/>→ vira convidado
-  L->>A: hello {cid do Luiz}
-  A-->>L: state (Luiz volta ao mesmo lugar)
+  A->>A: segura a partida após 5 s<br/>hostCid = Ana
+  A-->>P: state {ver 21, rodada 3}
+  Note over L: Luiz reabre o app<br/>(estado salvo: ver 20, rodada 2)
+  L->>A: hello (sem mandar o estado velho)
+  A-->>L: state {ver 21, rodada 3}
+  L->>L: adota a ver 21 e reassume<br/>hostCid = Luiz, ver 22
+  L-->>A: state {ver 22, hostCid Luiz}
+  L-->>P: state {ver 22, hostCid Luiz}
+  A->>A: o dono voltou → vira jogadora
 ```
 
 ## 8. Guardado no celular
@@ -321,31 +351,22 @@ sequenceDiagram
 | `ito-cid` | Identificador fixo do celular (para voltar ao mesmo lugar) |
 | `ito-name` | Nome escolhido |
 | `ito-online` | Sala atual, papel (`host`, `guest`, `tv`) e último estado, para reabrir o app e voltar à sala |
-| `ito-game-v2` | Partida do modo sem conexão |
 | `ito-sound`, `ito-tips` | Preferências |
 
-## 9. Plano B: modo sem conexão
+## 9. Sem internet
 
-Se a biblioteca não carregar (sem internet) ou a sala não for encontrada em 15 segundos, aparece **"Jogar sem conexão"**. Nesse modo:
-
-- cada pessoa escolhe seu número de lugar;
-- o sorteio determinístico garante as mesmas cartas e temas em todos os celulares;
-- todos apertam o mesmo botão (Acertamos/Erramos) ao fim da rodada.
+Não existe modo sem conexão: a partida sempre segue o anfitrião. Se a biblioteca não carregar ou a sala não for encontrada em 15 segundos, o app mostra o aviso e o botão **Tentar de novo**.
 
 ```mermaid
 flowchart TD
   OPEN["Abre o convite"] --> LOAD{"Biblioteca carregou?"}
-  LOAD -- não --> NOINT["Sem internet"]
+  LOAD -- não --> NOINT["Sem internet · Tentar de novo"]
   LOAD -- sim --> FIND{"Achou o anfitrião em 15 s?"}
   FIND -- sim --> ONLINE["Sala conectada"]
-  FIND -- não --> NOTFOUND["Não achamos a sala ainda"]
-  NOINT --> LOCAL["Jogar sem conexão<br/>escolhe o número do lugar"]
-  NOTFOUND --> LOCAL
-  NOTFOUND -- "Tentar de novo" --> FIND
-  ONLINE -- "anfitrião caiu e ninguém assumiu" --> LOCAL2["Jogar sem conexão<br/>continua da mesma rodada"]
+  FIND -- não --> NOTFOUND["Não achamos a sala ainda · Tentar de novo"]
+  NOINT --> OPEN
+  NOTFOUND --> FIND
 ```
-
-Se o anfitrião cair no meio do jogo, também dá para seguir sem conexão de onde parou.
 
 ## 10. Carregamento e cache
 
@@ -362,7 +383,8 @@ Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retra
 - **Precisa de internet** para a primeira conexão (sinalização). Depois de conectados, o tráfego é direto.
 - **Sem TURN**, alguns pares em redes móveis podem não conseguir se conectar.
 - **Dependência de serviços públicos:** relays Nostr, brokers MQTT, STUN e CDN são de terceiros e podem ficar fora do ar. As duas redes e os endereços reserva reduzem o risco.
-- **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Quando a rede volta, prevalece o estado de versão maior.
+- **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Quando a rede volta, prevalece o estado mais novo e o dono da sala reassume.
+- **Sem internet não tem jogo:** não existe modo sem conexão.
 - **Não é à prova de trapaça:** como as cartas são calculadas no próprio celular, alguém que saiba inspecionar o código no navegador poderia descobrir os números. Para um jogo entre amigos isso é aceitável. Impedir exigiria um servidor que guardasse as cartas.
 - **Privacidade:** o código da sala é a senha da negociação. Quem tiver o código pode entrar (o anfitrião pode remover).
 
@@ -394,9 +416,10 @@ flowchart LR
 | `onPeerJoin()` / `onPeerLeave()` | Presença |
 | `onMsg()` | Recebe e trata as mensagens |
 | `hostHello()` | Anfitrião recebe quem chegou e dá um lugar |
-| `applyAct()` | Regras do jogo (só o anfitrião executa) |
+| `applyAct()` / `HOST_ONLY` | Regras do jogo e ações que só o anfitrião pode pedir |
 | `playSeat()` / `markOutOfPlace()` / `checkRoundOver()` | Cartas na mesa, fora do lugar, fim da rodada |
 | `hostCommit()` | Aumenta a versão, salva e envia o estado |
-| `hostLost()` / `newerState()` | Troca de anfitrião |
+| `hostLost()` / `finishReclaim()` / `newerState()` | Anfitrião provisório e volta do dono |
+| `syncTick()` / `stateHash()` / `acceptState()` | Conferência de sincronia (tick, ack, pull) |
 | `deckFor()` / `themeAt()` | Sorteio determinístico |
 | `startHost()` / `startGuest()` / `netReset()` | Ciclo de vida da sala |

@@ -34,7 +34,7 @@ class TestPartida(E2E):
         self.assertEqual(len(set(cartas)), 3, 'cartas diferentes para cada um')
 
         # votação de tema
-        await ana.act('themeMenu'); await ana.page.locator('#dlgActions [value=voteStart]').click()
+        await host.act('themeMenu'); await host.page.locator('#dlgActions [value=voteStart]').click()
         await self.all_until(todos, "S.vote", 'votação aberta para todos')
         escolhido = await pedro.js("themeAt(S, S.vote.opts[1])[0]")
         for p in todos: await p.page.locator('.vote-opt[data-i="1"]').click()
@@ -50,7 +50,7 @@ class TestPartida(E2E):
         seats = sorted([(await p.my_card(), await p.seat()) for p in todos])
         await pedro.js("o=>sendAct('plan',{order:o})", [s for _, s in seats])
         await self.all_until(todos, f"JSON.stringify(planOrder())==='{json.dumps([s for _, s in seats], separators=(',', ':'))}'", 'ordem sincronizada')
-        await ana.act('revealPlan'); await ana.confirm()
+        await host.act('revealPlan'); await host.confirm()
         await self.all_until(todos, "S.roundOver && S.table.every(t=>t.ok)", 'rodada certa')
         await host.page.wait_for_selector('.reveal-panel .ruler')
         self.assertEqual(await host.count('.reveal-panel .r-label'), 3)
@@ -65,7 +65,7 @@ class TestPartida(E2E):
         bad = await ana.js("S.table.filter(t=>!t.ok).map(t=>t.seat)")
         self.assertEqual(bad, [lo], 'só quem estava fora do lugar fica marcado')
         self.assertEqual(await ana.js("S.results"), [1, 0])
-        await pedro.act('next')
+        await host.act('next')
         await self.all_until(todos, "S.round===3 && !S.roundOver", 'rodada 3')
 
         # rodada 3: um por um, na ordem certa
@@ -74,7 +74,7 @@ class TestPartida(E2E):
             await p.page.locator('[data-act=playCard]').click(); await p.confirm()
             await p.until("S.table.some(t=>t.seat===S.seat)")
         await self.all_until(todos, "S.roundOver && S.table.every(t=>t.ok)", 'rodada 3 certa')
-        await ana.act('next')
+        await host.act('next')
         await self.all_until(todos, "S.status==='done'", 'fim de jogo')
         self.assertEqual(await host.text('.end-state .score strong'), '2')
         self.assertIn('rodadas certas', await host.text('.end-state .score span'))
@@ -84,7 +84,7 @@ class TestPartida(E2E):
         self.assertGreater(tamanho, 10000, 'imagem do resumo gerada')
 
         # jogar de novo
-        await pedro.act('restart')
+        await host.act('restart')
         await self.all_until(todos, "S.status==='play' && S.round===1 && S.game===2", 'nova partida')
 
     async def test_toques_ao_mesmo_tempo_contam_uma_vez(self):
@@ -108,9 +108,10 @@ class TestPartida(E2E):
 
     async def test_tema_escrito_pela_turma(self):
         url, host, (ana, pedro) = await self.room()
-        await pedro.act('themeMenu'); await pedro.page.locator('#dlgActions [value=customTheme]').click()
-        await pedro.page.fill('#ctTitle', 'Coisas que o tio fala'); await pedro.page.fill('#ctHigh', 'pérola')
-        await pedro.confirm()
+        await host.act('themeMenu'); await host.page.locator('#dlgActions [value=customTheme]').click()
+        await host.page.fill('#ctTitle', 'Coisas que o tio fala'); await host.page.fill('#ctHigh', 'pérola')
+        await host.confirm()
+        await pedro.until("S.custom")
         await host.until("S.custom && S.custom.title==='Coisas que o tio fala'")
         self.assertIn('tema da turma', (await host.text('.theme .eyebrow')).lower())
 
@@ -134,7 +135,7 @@ class TestVotacao(E2E):
     async def test_empate_sorteia_e_avisa_e_tema_perdedor_nao_volta(self):
         url, host, (ipad,) = await self.room(names=('Luiz', 'iPad'), rounds=5)
         both = [host, ipad]
-        await ipad.act('themeMenu'); await ipad.page.locator('#dlgActions [value=voteStart]').click()
+        await host.act('themeMenu'); await host.page.locator('#dlgActions [value=voteStart]').click()
         await self.all_until(both, "S.vote", 'votação aberta')
         opts = await host.js("S.vote.opts.map(p=>themeAt(S,p)[0])")
         await host.page.locator('.vote-opt[data-i="0"]').click()
@@ -153,8 +154,27 @@ class TestVotacao(E2E):
     async def test_encerrar_sem_votos_mantem_o_tema(self):
         url, host, (ana,) = await self.room(names=('Luiz', 'Ana'))
         antes = await host.js("theme()[0]")
-        await ana.act('themeMenu'); await ana.page.locator('#dlgActions [value=voteStart]').click()
+        await host.act('themeMenu'); await host.page.locator('#dlgActions [value=voteStart]').click()
         await host.until("S.vote")
         await host.act('voteEnd')
         await self.all_until([host, ana], "!S.vote")
         self.assertEqual(await ana.js("theme()[0]"), antes)
+
+
+class TestSoAnfitriao(E2E):
+    async def test_convidado_nao_comanda_a_partida(self):
+        url, host, (ana, pedro) = await self.room()
+        self.assertEqual(await ana.count('[data-act=themeMenu]'), 0, 'convidado não vê Mudar tema')
+        self.assertEqual(await ana.count('[data-act=revealPlan]'), 0, 'convidado não vê Revelar')
+        self.assertIn('revela', await ana.text('.dock'))
+        # mesmo forçando pelo código, o anfitrião recusa
+        for t in ('voteStart', 'skip', 'reveal', 'start'):
+            await ana.js(f"sendAct('{t}',{{order:planOrder()}})")
+        await host.page.wait_for_timeout(600)
+        self.assertFalse(await host.js("!!NET.st.vote || S.roundOver || S.table.length>0"), 'nada mudou')
+        # mas o convidado pode votar, dar dica e arrumar a ordem
+        await ana.page.fill('#myHint', 'pizza'); await ana.act('saveHint')
+        await host.until("Object.values(S.hints).includes('pizza')")
+        await host.act('revealPlan'); await host.confirm()
+        await self.all_until([host, ana, pedro], "S.roundOver")
+        self.assertEqual(await ana.count('[data-act=next]'), 0, 'convidado não passa a rodada')

@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.5.3';
+const VERSION = '1.6.0';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -92,8 +92,8 @@ let myName=ls.get('ito-name','');
 
 /* ---------- Estado ---------- */
 let S=null;                 // partida na tela
-let P=null;                 // sala aberta (modo sem conexão)
-const draft={ players:4, rounds:5, mask:ALL_MASK };
+let P=null;                 // sala aberta (antes de conectar)
+const draft={ players:10, rounds:5, mask:ALL_MASK };   // até 10 pessoas por sala
 let peek=false, peekKey='', lastEv='';
 let installEvt=null, swReg=null;
 const drafts={};      // textos digitados e ainda não enviados (sobrevivem às atualizações da tela)
@@ -185,11 +185,10 @@ function qrSvg(text){
 function home(keep){
   const typed=keep && $('#code') ? $('#code').value : '';
   S=null; P=null; setMeta(''); document.body.classList.remove('tv');
-  const local=ls.get(LOCAL_KEY,null), online=ls.get(ONLINE_KEY,null);
+  ls.del(LOCAL_KEY);
+  const online=ls.get(ONLINE_KEY,null);
   const resume= online?`<button class="resume" data-act="resume"><span class="dot"></span>
-      <span><strong>${online.role==='tv'?'Voltar para o telão':'Voltar para a sala'}</strong><span>Sala ${online.code}${online.role==='host'?' · você é o anfitrião':''}</span></span>${svgStroke(I.chevron)}</button>`
-    : local?`<button class="resume" data-act="resume"><span class="dot"></span>
-      <span><strong>Continuar partida</strong><span>Sala ${local.code} · rodada ${Math.min(local.round,local.rounds)} de ${local.rounds}</span></span>${svgStroke(I.chevron)}</button>`:'';
+      <span><strong>${online.role==='tv'?'Voltar para o telão':'Voltar para a sala'}</strong><span>Sala ${online.code}${online.role==='host'?' · você é o anfitrião':''}</span></span>${svgStroke(I.chevron)}</button>`:'';
   render(`
   <section class="hero">
     <p class="eyebrow">Jogo cooperativo</p>
@@ -201,7 +200,6 @@ function home(keep){
   <section class="panel">
     <h2>Criar sala</h2>
     <p class="lead">Escolha como vai ser a partida.</p>
-    <div class="field-group"><span class="label">Jogadores</span>${stepper('players',draft.players,2,10,'jogadores')}</div>
     <div class="field-group"><span class="label">Rodadas</span>${stepper('rounds',draft.rounds,MIN_ROUNDS,MAX_ROUNDS,draft.rounds===1?'rodada':'rodadas')}</div>
     <div class="field-group">
       <div class="cat-head"><span class="label">Categorias de tema</span><button class="link-btn" data-act="allCats">${draft.mask===ALL_MASK?'Limpar':'Todas'}</button></div>
@@ -224,13 +222,18 @@ function home(keep){
 }
 
 /* ======================================================================
-   Rede: duas redes ao mesmo tempo (Nostr e MQTT). As mensagens são
-   idempotentes, então receber a mesma coisa pelas duas não atrapalha.
+   Rede: duas redes ao mesmo tempo (Nostr e MQTT).
+   O ANFITRIÃO É A ÚNICA VERDADE: só ele altera o estado; os outros pedem
+   ações, recebem o estado e confirmam (ack). A cada 2 s o anfitrião envia
+   um "tick" com a versão e uma impressão digital (hash) do estado; quem
+   estiver diferente pede o estado de novo.
    ====================================================================== */
+const SYNC_EVERY=2000, RECLAIM_WAIT=3500;
 function netReset(){
   NET.links.forEach(l=>{ try{ l.room.leave(); }catch(e){} });
-  clearTimeout(NET.timer); clearTimeout(NET.graceTimer);
-  Object.assign(NET,{links:[],role:null,code:null,st:null,peers:{},failed:false,timedOut:false,timer:null,graceTimer:null,fresh:false,spectator:false});
+  clearTimeout(NET.timer); clearTimeout(NET.graceTimer); clearTimeout(NET.reclaimTimer); clearInterval(NET.syncTimer);
+  Object.assign(NET,{links:[],role:null,code:null,st:null,peers:{},failed:false,timedOut:false,timer:null,graceTimer:null,
+    fresh:false,spectator:false,acks:{},reclaiming:false,reclaimTimer:null,syncTimer:null});
 }
 async function loadLib(kind){
   if(NET.libs[kind]) return NET.libs[kind];
@@ -266,6 +269,7 @@ async function connect(code){
     clearTimeout(NET.timer);
     NET.timer=setTimeout(()=>{ if(!NET.st){ NET.timedOut=true; showOnline(); } }, CONNECT_TIMEOUT);
   }
+  clearInterval(NET.syncTimer); NET.syncTimer=setInterval(syncTick, SYNC_EVERY);
   showOnline();
 }
 function sendTo(peerKey, data){
@@ -274,8 +278,11 @@ function sendTo(peerKey, data){
 }
 function broadcast(data){ NET.links.forEach(l=>{ try{ l.send(data); }catch(e){} }); }
 const aliveCids=()=>new Set([CID, ...Object.values(NET.peers)]);
-function sendToCid(cid, data){ const k=Object.keys(NET.peers).find(k=>NET.peers[k]===cid); if(k){ sendTo(k,data); return true; } return false; }
+function sendToCid(cid, data){ const ks=Object.keys(NET.peers).filter(k=>NET.peers[k]===cid); ks.forEach(k=>sendTo(k,data)); return ks.length>0; }
 const hostAlive=()=>NET.st && (NET.st.hostCid===CID || aliveCids().has(NET.st.hostCid));
+const stateHash=st=>xmur3(JSON.stringify(st))().toString(36);
+const hostName=()=>{ const st=NET.st; const p=st&&st.players.find(p=>p.cid===st.hostCid); return (p&&p.name)||'o anfitrião'; };
+const isHostNow=()=>NET.role==='host' && !NET.reclaiming;
 
 function saveOnline(){
   if(NET.role==='host') ls.set(ONLINE_KEY,{code:NET.code, role:'host', st:NET.st});
@@ -283,62 +290,96 @@ function saveOnline(){
 }
 function onPeerJoin(peer){
   sendTo(peer, {t:'hello', cid:CID, name:myName, spectator:NET.spectator});
-  if(NET.role==='host') sendTo(peer, {t:'state', st:NET.st});
+  if(isHostNow()) sendTo(peer, {t:'state', st:NET.st});
 }
 function onPeerLeave(peer){
   const cid=NET.peers[peer]; delete NET.peers[peer];
   if(!cid || aliveCids().has(cid)) return;          // ainda conectado pela outra rede
-  if(NET.role==='host'){
+  if(isHostNow()){
     const pl=NET.st.players.find(p=>p.cid===cid);
     if(pl){ pl.on=false; checkRoundOver(NET.st); hostCommit(); }
   } else if(NET.st && cid===NET.st.hostCid){ hostLost(); }
 }
-/* Anfitrião caiu: depois de alguns segundos, o próximo jogador conectado assume */
+/* Anfitrião caiu: depois de alguns segundos, o próximo jogador conectado segura a partida
+   provisoriamente. Quando o dono da sala voltar, ele reassume. */
 function hostLost(){
   showOnline();
   clearTimeout(NET.graceTimer);
   NET.graceTimer=setTimeout(()=>{
-    if(NET.role!=='guest' || hostAlive()) return;
+    if(NET.role!=='guest' || NET.spectator || hostAlive()) return;
     if(!NET.fresh){ showOnline(); return; }        // só assume quem recebeu o estado atual nesta sessão
     const alive=aliveCids(), st=NET.st;
     const next=st.players.filter(p=>p.cid!==st.hostCid && alive.has(p.cid)).sort((a,b)=>a.seat-b.seat)[0];
     if(next && next.cid===CID){
-      NET.role='host'; st.hostCid=CID;
+      NET.role='host'; st.hostCid=CID; NET.acks={};
       st.players.forEach(p=>p.on=alive.has(p.cid));
-      const me=st.players.find(p=>p.cid===CID);
-      setEv(st,'newhost',me);
+      setEv(st,'newhost',st.players.find(p=>p.cid===CID));
       checkRoundOver(st); hostCommit();
     } else { showOnline(); hostLost(); }
   }, HOST_GRACE);
 }
+/* Dono da sala voltando: espera um pouco para pegar o estado mais novo e reassume */
+function finishReclaim(){
+  if(!NET.reclaiming) return;
+  NET.reclaiming=false; clearTimeout(NET.reclaimTimer);
+  const st=NET.st, alive=aliveCids(), wasOther=st.hostCid!==CID;
+  st.hostCid=CID; NET.acks={};
+  st.players.forEach(p=>p.on=alive.has(p.cid));
+  if(wasOther) setEv(st,'hostBack',st.players.find(p=>p.cid===CID));
+  checkRoundOver(st); hostCommit();
+}
 function newerState(a,b){ // a é mais nova que b?
   if(!b) return true;
-  if(a.ver!==b.ver) return a.ver>b.ver;
+  if((a.ver||0)!==(b.ver||0)) return (a.ver||0)>(b.ver||0);
+  const ao=a.hostCid===a.ownerCid, bo=b.hostCid===b.ownerCid;
+  if(ao!==bo) return ao;                                 // empate: vale o do dono da sala
   return a.hostCid<b.hostCid;
+}
+function acceptState(st, peer){
+  NET.st=st; NET.fresh=true; NET.timedOut=false; clearTimeout(NET.timer); clearTimeout(NET.graceTimer);
+  if(!NET.spectator && !st.players.some(p=>p.cid===CID)) sendTo(peer,{t:'hello', cid:CID, name:myName});
+  else sendTo(peer,{t:'ack', ver:st.ver, h:stateHash(st)});
+  saveOnline(); showOnline();
 }
 function onMsg(m, peer){
   if(!m || typeof m!=='object') return;
   if(m.t==='react'){ if(m.id && seenReacts.has(m.id)) return; seenReacts.add(m.id); if(seenReacts.size>200) seenReacts.clear(); showReaction(m.e, String(m.by||'').slice(0,20)); return; }
   if(m.t==='hello' && typeof m.cid==='string'){
     NET.peers[peer]=m.cid;
-    if(NET.role==='host') hostHello(m, peer);
+    if(isHostNow()) hostHello(m, peer);
     return;
   }
   if(m.t==='state' && m.st && m.st.code===NET.code){
     NET.peers[peer]=m.st.hostCid;
     if(m.st.hostCid===CID) return;
-    if(NET.role==='host'){
-      if(!newerState(m.st, NET.st)) { sendTo(peer,{t:'state', st:NET.st}); return; }
-      NET.role='guest';                               // outro anfitrião assumiu: vira convidado
+    if(NET.reclaiming){                                    // dono voltando: guarda o estado mais novo
+      if(newerState(m.st, NET.st)){ NET.st=m.st; clearTimeout(NET.reclaimTimer); NET.reclaimTimer=setTimeout(finishReclaim, 1500); }
+      return;
     }
-    if(NET.role!=='guest' || !newerState(m.st, NET.st)) return;
-    NET.st=m.st; NET.fresh=true; NET.timedOut=false; clearTimeout(NET.timer); clearTimeout(NET.graceTimer);
-    if(!NET.spectator && !m.st.players.some(p=>p.cid===CID)) sendTo(peer,{t:'hello', cid:CID, name:myName});
-    saveOnline(); showOnline();
+    if(NET.role==='host'){
+      if(NET.st.ownerCid===CID){                           // sou o dono: continuo anfitrião, mas aproveito o progresso
+        if((m.st.ver||0)>(NET.st.ver||0)){ NET.st=Object.assign(m.st,{hostCid:CID}); hostCommit(); }
+        else sendTo(peer,{t:'state', st:NET.st, force:true});
+        return;
+      }
+      if(!(m.st.hostCid===m.st.ownerCid || newerState(m.st, NET.st))){ sendTo(peer,{t:'state', st:NET.st}); return; }
+      NET.role='guest'; NET.acks={};                       // o dono reassumiu: vira jogador
+    }
+    if(NET.role!=='guest') return;
+    if(m.force || newerState(m.st, NET.st)) acceptState(m.st, peer);
+    else sendTo(peer,{t:'ack', ver:NET.st.ver, h:stateHash(NET.st)});
     return;
   }
-  if(NET.role==='host'){
-    const pl=NET.st.players.find(p=>p.cid===NET.peers[peer]);
+  if(m.t==='tick'){                                       // conferência periódica do anfitrião
+    NET.peers[peer]=m.hostCid;
+    if(NET.role==='guest' && (!NET.st || m.ver!==NET.st.ver || m.h!==stateHash(NET.st))) sendTo(peer,{t:'pull'});
+    return;
+  }
+  if(isHostNow()){
+    const cid=NET.peers[peer];
+    if(m.t==='pull'){ sendTo(peer,{t:'state', st:NET.st, force:true}); return; }
+    if(m.t==='ack'){ if(cid) NET.acks[cid]={ver:m.ver, h:m.h, at:Date.now()}; if(m.h!==stateHash(NET.st) && m.ver===NET.st.ver) sendTo(peer,{t:'state', st:NET.st, force:true}); return; }
+    const pl=NET.st.players.find(p=>p.cid===cid);
     if(!pl) return;
     if(m.t==='name'){ pl.name=String(m.name||'').trim().slice(0,20); hostCommit(); }
     else if(m.t==='act' && m.a){ if(applyAct(NET.st, m.a, pl)) hostCommit(); }
@@ -355,6 +396,17 @@ function onMsg(m, peer){
       dialog({title:msg[0], body:`<p>${msg[1]}</p>`, actions:[{label:'Ok',value:'ok',cls:'brand'}]});
     }
   }
+}
+/* A cada 2 s: o anfitrião confere quem está atrasado e reenvia; todos recebem a impressão digital do estado */
+function syncTick(){
+  if(!isHostNow() || !NET.st) return;
+  const st=NET.st, h=stateHash(st), alive=aliveCids();
+  broadcast({t:'tick', ver:st.ver, h, hostCid:CID});
+  st.players.forEach(p=>{
+    if(p.cid===CID || !alive.has(p.cid)) return;
+    const a=NET.acks[p.cid];
+    if(!a || a.ver!==st.ver || a.h!==h) sendToCid(p.cid,{t:'state', st, force:true});
+  });
 }
 function hostHello(m, peer){
   const st=NET.st;
@@ -387,9 +439,12 @@ function checkRoundOver(st){
     st.vote=null;
   }
 }
+/* Ações que só o anfitrião pode fazer */
+const HOST_ONLY=new Set(['start','reveal','next','restart','voteStart','voteEnd','skip','custom','kick','move']);
 function applyAct(st, a, by){
   const isHost=by.cid===st.hostCid, fresh=a.game===st.game && a.round===st.round;
-  if(a.t==='start' && st.phase==='lobby' && isHost){ st.phase='play'; setEv(st,'start',by); return true; }
+  if(HOST_ONLY.has(a.t) && !isHost) return false;
+  if(a.t==='start' && st.phase==='lobby'){ st.phase='play'; setEv(st,'start',by); return true; }
   if(a.t==='play' && st.phase==='play' && fresh && !st.roundOver && !st.table.some(t=>t.seat===by.seat)){
     const t=playSeat(st, by.seat);
     setEv(st,'play',by,{card:t.card, ok:t.ok});
@@ -445,9 +500,9 @@ function applyAct(st, a, by){
     st.game++; st.round=1; st.results=[]; st.themePos=nextThemePos(st); st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[];
     setEv(st,'restart',by); return true;
   }
-  if(isHost && st.phase==='lobby' && (a.t==='kick' || a.t==='move')){
+  if(st.phase==='lobby' && (a.t==='kick' || a.t==='move')){
     const i=st.players.findIndex(p=>p.cid===a.cid); if(i<0) return false;
-    if(a.t==='kick'){ if(a.cid===CID) return false; st.banned=(st.banned||[]).concat(a.cid); st.players.splice(i,1); }
+    if(a.t==='kick'){ if(a.cid===by.cid) return false; st.banned=(st.banned||[]).concat(a.cid); st.players.splice(i,1); }
     else { const j=i+(a.dir<0?-1:1); if(j<0||j>=st.players.length) return false; [st.players[i],st.players[j]]=[st.players[j],st.players[i]]; }
     st.players.forEach((p,k)=>p.seat=k+1);
     return true;
@@ -490,6 +545,7 @@ function hostCommit(){
 }
 function sendAct(t, extra){
   const a=Object.assign({t, game:S.game, round:S.round, themePos:S.themePos}, extra||{});
+  if(NET.reclaiming){ toast('Voltando como anfitrião… só um instante'); return; }
   if(NET.role==='host'){
     const me=NET.st.players.find(p=>p.cid===CID);
     if(applyAct(NET.st,a,me)){
@@ -500,11 +556,12 @@ function sendAct(t, extra){
 }
 function startHost(room, saved){
   netReset(); NET.role='host'; lastEv='';
-  NET.st=saved || { code:room.code, rounds:room.rounds, mask:room.mask, hostCid:CID, ver:1,
+  if(saved){ NET.reclaiming=true; NET.reclaimTimer=setTimeout(finishReclaim, RECLAIM_WAIT); }   // dono voltando
+  NET.st=saved || { code:room.code, rounds:room.rounds, mask:room.mask, hostCid:CID, ownerCid:CID, ver:1,
     players:[{seat:1, cid:CID, name:myName, on:true}], banned:[], phase:'lobby',
     game:1, round:1, results:[], themePos:0, table:[], roundOver:false, custom:null, history:[], ev:null, hints:{}, log:[], vote:null };
-  NET.st.players.forEach(p=>p.on=p.cid===CID);
-  const me=NET.st.players.find(p=>p.cid===CID); if(me && myName) me.name=myName;
+  NET.st.ownerCid=NET.st.ownerCid||CID;
+  if(!saved){ NET.st.players.forEach(p=>p.on=p.cid===CID); const me=NET.st.players.find(p=>p.cid===CID); if(me && myName) me.name=myName; }
   history.replaceState(null,'','#'+NET.st.code);
   saveOnline(); connect(NET.st.code);
 }
@@ -554,7 +611,8 @@ function announce(st){
     if(!mine) toast(`${ev.by} revelou as cartas`);
     return;
   }
-  if(ev.k==='newhost'){ toast(mine?'Você agora é o anfitrião':`${ev.by} agora é o anfitrião`); return; }
+  if(ev.k==='newhost'){ toast(mine?'Você segura a partida até o anfitrião voltar':`${ev.by} segura a partida até o anfitrião voltar`); return; }
+  if(ev.k==='hostBack'){ toast(mine?'Você voltou e é o anfitrião de novo':`${ev.by} voltou e é o anfitrião de novo`); return; }
   if(ev.k==='voted'){ SFX.pop(); toast(ev.tie?`Empate! Sorteado: ${ev.title}`:`Tema escolhido: ${ev.title}`); return; }
   if(ev.k==='voteCancel'){ toast('Votação cancelada, o tema continua o mesmo'); return; }
   if(ev.k==='next' && st.phase==='done'){
@@ -573,13 +631,12 @@ function connecting(){
     ${stuck?`<div class="badge">${svgStroke(I.wifiOff)}</div>
       <h2>${NET.failed?'Sem internet':'Não achamos a sala ainda'}</h2>
       <p>${NET.failed?'Confira a conexão e tente de novo.':'Confira se quem criou a sala está com o ito aberto.'}</p>
-      <div class="stack"><button class="btn brand" data-act="retry">Tentar de novo</button>
-      <button class="btn outline" data-act="goLocal">Jogar sem conexão</button></div>`
+      <div class="stack"><button class="btn brand" data-act="retry">Tentar de novo</button></div>`
     :`<div class="spinner"></div><h2>Entrando na sala…</h2><p>Sala ${NET.code}</p>`}
   </section>
   <button class="btn text" data-act="leave">Cancelar</button>`, false, true);
 }
-const banner=()=>`<div class="banner">${svgStroke(I.wifiOff)}<span>O anfitrião caiu. Reconectando…</span><button data-act="goLocal">Jogar sem conexão</button></div>`;
+const banner=()=>`<div class="banner">${svgStroke(I.wifiOff)}<span>${esc(hostName())} (anfitrião) desconectou. Esperando voltar…</span></div>`;
 
 function lobby(){
   const st=NET.st, isHost=NET.role==='host', me=st.players.find(p=>p.cid===CID), alive=aliveCids();
@@ -595,7 +652,7 @@ function lobby(){
     <ul class="roster">${st.players.map(p=>`<li class="${isOn(p)?'':'off'}">
       <span class="num">${p.seat}</span>
       <span class="nm">${esc(p.name||`Jogador ${p.seat}`)}</span>
-      ${p.cid===CID?'<span class="tag">você</span>':''}${p.cid===st.hostCid?'<span class="tag host">anfitrião</span>':''}
+      ${p.cid===CID?'<span class="tag">você</span>':''}${p.cid===st.hostCid?`<span class="tag host">${st.ownerCid&&st.hostCid!==st.ownerCid?'anfitrião provisório':'anfitrião'}</span>`:''}
       <span class="status-dot"></span>
       ${isHost?`<button class="row-btn" data-act="playerMenu" data-cid="${esc(p.cid)}" aria-label="Opções">${svgStroke('<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>')}</button>`:''}
     </li>`).join('')}</ul>
@@ -616,34 +673,6 @@ function lobby(){
 }
 
 /* ======================================================================
-   Modo sem conexão (plano B)
-   ====================================================================== */
-function seatScreen(){
-  setMeta(`Sala <b>${P.code}</b>`);
-  let seats=''; for(let i=1;i<=P.n;i++) seats+=`<button data-act="seat" data-v="${i}">${i}</button>`;
-  render(`
-  <div class="mode-note">${svgStroke(I.wifiOff)}<span>Modo sem conexão: cada celular joga por conta própria. Todos apertam o mesmo botão ao fim da rodada.</span></div>
-  ${roomCard(P.code, `${P.n} jogadores · ${P.rounds} ${P.rounds===1?'rodada':'rodadas'}<br>${catNames(P.mask)}`)}
-  <section class="panel">
-    <h2>Qual é o seu número?</h2>
-    <p class="lead">Cada pessoa escolhe um número diferente. Combinem em voz alta antes.</p>
-    <div class="seats">${seats}</div>
-  </section>
-  <button class="btn text" data-act="goHome">Voltar</button>`);
-}
-const saveLocal=()=>ls.set(LOCAL_KEY,S);
-function localAct(t){
-  if(t==='win'||t==='lose'){
-    S.results.push(t==='win'?1:0);
-    if(S.results.length>=S.rounds){ S.status='done'; S.history=(S.history||[]).concat({game:S.game, score:S.results.filter(x=>x===1).length, total:S.rounds}); vibrate([60,40,60]);
-      if(S.results.filter(x=>x===1).length/S.rounds>=.5){ SFX.win(); confetti(); } }
-    else { S.round++; S.themePos++; vibrate(30); toast(t==='win'?'Boa! Próxima rodada':'Faz parte. Próxima rodada'); if(t==='win'){ SFX.good(); confetti(); } else SFX.bad(); }
-  } else if(t==='skip'){ S.themePos++; }
-  else if(t==='restart'){ S.game++; S.round=1; S.results=[]; S.themePos++; S.status='play'; }
-  saveLocal(); game();
-}
-
-/* ======================================================================
    Jogo
    ====================================================================== */
 function progress(){
@@ -655,7 +684,7 @@ function historyList(){
   return `<div class="history"><p class="eyebrow">Placar da noite</p><ul>${h.map(x=>`<li><span>Partida ${x.game}</span><strong>${x.score} de ${x.total}</strong></li>`).join('')}</ul></div>`;
 }
 function game(){
-  const online=S.mode==='online', hostGone=online && !hostAlive();
+  const online=true, hostGone=!hostAlive(), amHost=isHostNow(), hn=esc(hostName());
   setMeta(`<b>${esc(nameOf(S.seat))}</b> · ${S.code}`);
   const key=S.code+'|'+S.game+'|'+S.round; if(key!==peekKey){ peek=false; peekKey=key; }
   const score=S.results.filter(x=>x===1).length;
@@ -673,7 +702,7 @@ function game(){
       ${online && (S.log||[]).length ? (()=>{ const l=S.log[S.log.length-1]; return l.game===S.game ? `<details class="last-round"><summary>Ver a última rodada · ${esc(l.title)}</summary>${logRuler(l)}</details>` : ''; })() : ''}
       ${highlightsHtml()}
       ${historyList()}
-      <div class="stack"><button class="btn brand" data-act="restart">Jogar de novo</button>
+      <div class="stack">${amHost?'<button class="btn brand" data-act="restart">Jogar de novo</button>':`<button class="btn soft" disabled>Esperando ${hn} começar outra</button>`}
         <button class="btn soft" data-act="shareSummary">${svgStroke(I.share)}Compartilhar resumo</button>
         <button class="btn outline" data-act="leave">Sair</button></div>
     </section>${online?reactFab():''}`, false, online);
@@ -682,32 +711,21 @@ function game(){
   if(!S.seat){ render(`<section class="panel connect"><div class="spinner"></div><h2>Entrando na partida…</h2></section>`,false,true); return; }
 
   const [title,low,high,ci]=theme(), mine=deck()[S.seat-1];
-  const iPlayed=online && S.table.some(t=>t.seat===S.seat);
-  const canEditTheme=!online || !S.table.length;
+  const iPlayed=S.table.some(t=>t.seat===S.seat);
+  const canEditTheme=amHost && !S.table.length;
   const themeCard=`<section class="panel theme">
     <p class="eyebrow">${ci<0?'Tema da turma':'Tema · '+CATS[ci].name}</p>
     <h2>${esc(title)}</h2>
     <div class="scale"><span class="end">1</span><span class="bar"></span><span class="end">100</span></div>
     <div class="scale-labels"><span>${esc(low)}</span><span>${esc(high)}</span></div>
-    ${canEditTheme && !(online && S.vote)?`<div class="theme-actions">
-      ${online?`<button class="chip" data-act="themeMenu">${svgStroke(I.shuffle)}Mudar tema</button>`:`<button class="chip" data-act="skip">${svgStroke(I.shuffle)}Trocar tema</button>`}</div>`:''}
-  </section>${online && S.vote ? votePanel() : ''}`;
+    ${canEditTheme && !S.vote?`<div class="theme-actions"><button class="chip" data-act="themeMenu">${svgStroke(I.shuffle)}Mudar tema</button></div>`:''}
+  </section>${S.vote ? votePanel() : ''}`;
   const cardHtml=`<p class="whose">Sua carta, ${esc(nameOf(S.seat))}</p>
   <div class="hand"><button class="card ${peek||iPlayed?'up':''} ${iPlayed?'played':''}" data-act="peek" aria-label="${peek?'Sua carta: '+mine:'Carta escondida'}">
     <span class="face back">${I.thread}</span>
     <span class="face front"><small class="tl">${mine}</small><strong>${mine}</strong><small class="br">${mine}</small></span>
   </button></div>
   ${iPlayed?'<p class="hint">Sua carta está na mesa</p>':`<p class="hint">${peek?'Toque para esconder':'Toque na carta para ver seu número'}</p>`}`;
-
-  if(!online){
-    render(`${themeCardWrap()}
-    <button class="btn outline" data-act="reveal">${svgStroke(I.eye)}Conferir cartas de todos</button>
-    <div class="dock"><div class="dock-inner">
-      <p class="note">Todos apertam o mesmo botão ao fim da rodada</p>
-      <div class="btn-row"><button class="btn soft" data-act="lose">${I.x}Erramos</button><button class="btn ok" data-act="win">${I.check}Acertamos</button></div>
-    </div></div>`, true);
-    return;
-  }
 
   // Mesa (modo conectado) — só o essencial à mostra
   const pending=planOrder(), hintOf=s=>S.hints[s]||'';
@@ -716,7 +734,7 @@ function game(){
   const tips=!ls.get('ito-tips',false) ? `<section class="panel tips">
     <p class="eyebrow">Como funciona</p>
     <ol><li><b>Toque na carta</b> para ver seu número.</li><li>Fale uma <b>dica</b> sobre o tema, sem dizer o número.</li>
-    <li>Arrumem a <b>ordem da turma</b>: quem tem o menor número vai primeiro.</li><li><b>Revelem</b> todas de uma vez ou baixem uma por uma.</li></ol>
+    <li>Arrumem a <b>ordem da turma</b>: quem tem o menor número vai primeiro.</li><li>Quando todos concordarem, ${amHost?'<b>você</b> (anfitrião) revela':`<b>${hn}</b> (anfitrião) revela`} as cartas.</li></ol>
     <button class="btn soft" data-act="tipsOk">Entendi</button></section>` : '';
   const hintRow=!iPlayed && !S.roundOver ? `<div class="hint-row"><input id="myHint" maxlength="30" placeholder="Sua dica (opcional)" value="${esc(drafts.hint&&drafts.hint.k===key?drafts.hint.v:hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
     <button data-act="saveHint">${hintOf(S.seat)?'Trocar':'Enviar'}</button></div>` : '';
@@ -726,7 +744,7 @@ function game(){
   </section>` : '';
   const order=!S.roundOver && pending.length ? `<section class="panel order">
     <div class="row-between"><h2>Ordem da turma</h2><span class="count">${pending.length} na mão</span></div>
-    <p class="lead">Quem tem o menor número vai primeiro. Qualquer um pode mexer e, quando todos concordarem, qualquer um pode revelar.</p>
+    <p class="lead">Quem tem o menor número vai primeiro. Qualquer um pode mexer; quando todos concordarem, ${amHost?'você revela':`${hn} revela`}.</p>
     <ol class="order-list">${pending.map((s,i)=>`<li class="${s===S.seat?'me':''}">
       <span class="pos">${S.table.length+i+1}º</span>
       <span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:''}</span>
@@ -745,14 +763,15 @@ function game(){
   if(S.roundOver && nextReadyKey!==key){ nextReadyKey=key; nextReadyAt=Math.max(Date.now(), revealAnimUntil)+2500; pending_next=false; }
   const wait=S.roundOver && Date.now()<nextReadyAt;
   const dock=S.roundOver
-    ? `<button class="btn brand" data-act="next" ${wait||pending_next?'disabled':''}>${pending_next?'Indo…':wait?'Olhem o resultado…':last?'Ver placar final':'Próxima rodada'}</button>`
-    : `<button class="btn brand" data-act="revealPlan">${svgStroke(I.eye)}${pending.length>1?'Revelar nessa ordem':'Revelar a última carta'}</button>`;
+    ? (amHost ? `<button class="btn brand" data-act="next" ${wait||pending_next?'disabled':''}>${pending_next?'Indo…':wait?'Olhem o resultado…':last?'Ver placar final':'Próxima rodada'}</button>`
+              : `<button class="btn soft" disabled>Esperando ${hn} ${last?'abrir o placar':'passar a rodada'}</button>`)
+    : (amHost ? `<button class="btn brand" data-act="revealPlan">${svgStroke(I.eye)}${pending.length>1?'Revelar nessa ordem':'Revelar a última carta'}</button>`
+              : `<button class="btn soft" disabled>Quando todos concordarem, ${hn} revela</button>`);
   render(`${hostGone?banner():''}${tips}${statusTop(score)}${S.roundOver?'':themeCard}${S.roundOver?'':cardHtml+hintRow}${result}${order}${table}${reactFab()}
     <div class="dock"><div class="dock-inner">${dock}</div></div>`, true, true);
   const hi=$('#myHint'); if(hi){ hi.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveHint(); } }); hi.addEventListener('input',()=>{ drafts.hint={k:key, v:hi.value}; }); }
   if(S.roundOver && Date.now()<nextReadyAt) setTimeout(()=>{ if(NET.st) showOnline(); }, nextReadyAt-Date.now()+30);
 
-  function themeCardWrap(){ return statusTop(score)+themeCard+cardHtml; }
 }
 function statusTop(score){
   return `<div class="statusbar">
@@ -837,7 +856,7 @@ function votePanel(){
       <span><strong>${esc(t[0])}</strong><small>1 = ${esc(t[1])} · 100 = ${esc(t[2])}</small></span><em>${c[i]}</em></button>`; }).join('')}
     <p class="vote-who">${S.players.filter(p=>p.on).map(p=>`<span class="${p.cid in v.votes?'done':''}">${esc(p.name||'Jogador '+p.seat)}${p.cid in v.votes?' ✓':''}</span>`).join('')}</p>
     <p class="vote-note">Quando todos votarem, o tema muda sozinho. Empate é decidido no sorteio.</p>
-    ${NET.spectator?'':'<button class="link-btn" data-act="voteEnd">Encerrar votação agora</button>'}
+    ${isHostNow()?'<button class="link-btn" data-act="voteEnd">Encerrar votação agora</button>':''}
   </section>`;
 }
 function highlights(game){
@@ -1005,7 +1024,6 @@ function openMenu(){
   if(inRoom){
     items.push(['share',I.share,'Convidar para a sala']);
     items.push(['qr',I.qr,'Mostrar QR code']);
-    if(S && S.mode==='local' && S.status==='play'){ items.push(['reveal',I.eye,'Conferir cartas de todos']); items.push(['syncBox',I.sliders,'Corrigir rodada']); }
     if(S && (S.history||[]).length) items.push(['showHistory',I.list,'Placar da noite']);
     items.push('hr');
   }
@@ -1035,9 +1053,8 @@ const act={
   create(){ if(!draft.mask) return; ls.del(LOCAL_KEY); startHost(newRoom()); },
   join(){ const p=parseCode($('#code').value); if(!p){ $('#err').textContent='Código não encontrado. Confira as 8 letras.'; return; } ls.del(LOCAL_KEY); startGuest(p); },
   resume(){
-    const online=ls.get(ONLINE_KEY,null), local=ls.get(LOCAL_KEY,null);
+    const online=ls.get(ONLINE_KEY,null);
     if(online){ const r=parseCode(online.code); if(r){ online.role==='host'?startHost(r,online.st):startGuest(r,online.st,online.role==='tv'); return; } }
-    if(local){ S=local; history.replaceState(null,'','#'+S.code); game(); return; }
     home();
   },
   retry(){ startGuest(parseCode(NET.code), NET.st, NET.spectator); },
@@ -1073,21 +1090,6 @@ const act={
     if(navigator.canShare && navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file], title:'ito', text:'Nosso resumo no ito'}); }catch(e){} return; }
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='ito-resumo.png'; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast('Imagem salva');
-  },
-  goLocal(){
-    const st=NET.st, room=parseCode(NET.code||(P&&P.code));
-    netReset(); ls.del(ONLINE_KEY);
-    if(st && st.players.some(p=>p.cid===CID) && st.phase!=='lobby'){
-      viewFromNet(st);
-      Object.assign(S,{mode:'local', custom:null}); delete S.table; delete S.roundOver;
-      if(st.roundOver && st.results.length<st.rounds){ S.round++; S.themePos++; }
-      saveLocal(); history.replaceState(null,'','#'+S.code); game(); toast('Modo sem conexão');
-    } else { P=room; seatScreen(); }
-  },
-  seat(b){
-    S={mode:'local', code:P.code, n:P.n, rounds:P.rounds, mask:P.mask, names:[], seat:+b.dataset.v, game:1, round:1, results:[], themePos:0, status:'play', history:[]};
-    if(myName) S.names[S.seat-1]=myName;
-    saveLocal(); game();
   },
   saveName(){
     const inp=$('#myName'); if(!inp) return;
@@ -1138,36 +1140,12 @@ const act={
     const title=$('#ctTitle').value.trim(); if(!title){ toast('Escreva o tema'); return; }
     sendAct('custom',{title, low:$('#ctLow').value.trim()||'pouco', high:$('#ctHigh').value.trim()||'muito'});
   },
-  async reveal(){
-    if(!await confirmBox('Mostrar todas as cartas?','Façam isso só depois de baixar as cartas, para conferir a ordem.','Mostrar')) return;
-    const d=deck(), [,low,high]=theme();
-    const entries=[...Array(S.n)].map((_,i)=>({card:d[i], name:nameOf(i+1)+(i+1===S.seat?' (você)':''), me:i+1===S.seat, seq:i}));
-    dialog({title:`Rodada ${S.round}`, body:ruler(entries,{anim:true, low, high, min:260}), actions:[{label:'Fechar',value:'ok',cls:'brand'}]});
-  },
   showHistory(){
     const h=S.history||[];
     dialog({title:'Placar da noite', body:h.length?`<ul class="hist">${h.map(x=>`<li><span>Partida ${x.game}</span><strong>${x.score} de ${x.total}</strong></li>`).join('')}</ul>`:'<p>Nenhuma partida terminada ainda.</p>', actions:[{label:'Fechar',value:'ok',cls:'brand'}]});
   },
-  win(){ localAct('win'); },
-  lose(){ localAct('lose'); },
-  skip(){ S.mode==='online'?sendAct('skip'):localAct('skip'); },
-  restart(){ S.mode==='online'?sendAct('restart'):localAct('restart'); },
-  async syncBox(){
-    const score=S.results.filter(x=>x===1).length;
-    const v=await dialog({title:'Corrigir rodada', body:`<p>Alguém ficou com a rodada ou o tema diferente? Copie aqui os números do celular de outra pessoa.</p>
-      <div class="grid2">
-        <label>Rodada<input id="sr" type="number" inputmode="numeric" min="1" max="${S.rounds}" value="${S.round}"></label>
-        <label>Acertos<input id="sa" type="number" inputmode="numeric" min="0" value="${score}"></label>
-        <label>Nº do tema<input id="st" type="number" inputmode="numeric" min="0" value="${S.themePos}"></label>
-        <label>Partida<input id="sg" type="number" inputmode="numeric" min="1" value="${S.game}"></label>
-      </div>`, actions:[{label:'Cancelar',value:'no'},{label:'Aplicar',value:'ok',cls:'brand'}]});
-    if(v!=='ok') return;
-    const n=id=>parseInt($('#'+id).value,10)||0, clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
-    const round=clamp(n('sr'),1,S.rounds), hits=clamp(n('sa'),0,round-1);
-    S.round=round; S.results=[...Array(round-1)].map((_,i)=>i<hits?1:0);
-    S.themePos=clamp(n('st'),0,99999); S.game=clamp(n('sg'),1,99999); S.status='play';
-    saveLocal(); game(); toast('Pronto, tudo certo');
-  },
+  skip(){ sendAct('skip'); },
+  restart(){ sendAct('restart'); },
   rules(){
     dialog({title:'Como jogar', body:`
       <ol>
@@ -1177,7 +1155,8 @@ const act={
         <li>Se alguém baixar uma carta maior que a de outra pessoa que ainda não baixou, o app avisa: <b>fora da ordem</b>.</li>
       </ol>
       <p><b>Criar a sala:</b> escolha quantas rodadas e os assuntos dos temas, e mande o convite (link ou QR code). Cada um coloca o próprio nome, se quiser.</p>
-      <p><b>Ordem da turma:</b> combinem quem baixa primeiro, arrumem a lista e toquem em <b>Revelar nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
+      <p><b>Anfitrião:</b> quem cria a sala comanda a partida: começa, revela as cartas, passa a rodada, abre votação e muda o tema. Se cair, outra pessoa segura até ele voltar.</p>
+      <p><b>Ordem da turma:</b> combinem quem baixa primeiro e arrumem a lista. Quando todos concordarem, o anfitrião toca em <b>Revelar nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
       <p><b>Dica:</b> escreva a palavra que você falou. Ela aparece na mesa para todos.</p>
       <p><b>Tema:</b> antes de alguém baixar, dá para trocar, votar entre dois temas ou escrever um tema da turma.</p>
       <p><b>Telão:</b> uma TV ou notebook pode entrar como mesa, mostrando tudo em tamanho grande.</p>
@@ -1242,9 +1221,8 @@ if('serviceWorker' in navigator){
 /* ---------- Início ---------- */
 (function start(){
   if(location.search) history.replaceState(null,'',location.pathname+location.hash);
-  const h=parseHash(location.hash), online=ls.get(ONLINE_KEY,null), local=ls.get(LOCAL_KEY,null);
+  const h=parseHash(location.hash), online=ls.get(ONLINE_KEY,null);
   if(h && online && online.code===h.code){ online.role==='host'?startHost(h,online.st):startGuest(h,online.st,online.role==='tv'); }
-  else if(h && local && local.code===h.code){ S=local; game(); }
-  else if(h){ ls.del(LOCAL_KEY); startGuest(h); }
+  else if(h){ startGuest(h); }
   else home();
 })();

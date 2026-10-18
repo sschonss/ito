@@ -18,8 +18,8 @@ Capturas de tela de cada teste ficam em `tests/e2e/artifacts/`.
 | Arquivo | Cobre |
 |---|---|
 | `test_basics.py` | Tela inicial, arquivos do PWA, versões iguais em `app.js`/`sw.js`, código da sala, regra de "fora do lugar", mesmas cartas em todos os celulares |
-| `test_offline.py` | Sem internet → modo sem conexão, régua no Conferir, placar final |
-| `test_online_game.py` | Lobby (nomes, ordem, remover jogador), partida completa (votação, dicas, ordem combinada, revelação certa e errada, um por um, fim de jogo, resumo, jogar de novo), toques simultâneos, reações sem duplicar, tema da turma, telão |
-| `test_resilience.py` | Anfitrião cai, outro assume e ele volta como jogador; dica e nome digitados não se perdem |
+| `test_offline.py` | Sem internet → aviso e Tentar de novo (não existe modo sem conexão) |
+| `test_online_game.py` | Lobby (nomes, ordem, remover jogador), partida completa (votação, dicas, ordem combinada, revelação certa e errada, um por um, fim de jogo, resumo, jogar de novo), toques simultâneos, reações sem duplicar, tema da turma, telão, votação (empate, cancelar), só o anfitrião comanda |
+| `test_resilience.py` | Anfitrião cai, alguém segura e ele volta a ser anfitrião sem perder rodada; atualização perdida é corrigida pela conferência; dica e nome digitados não se perdem |
 
 Os testes rodam automaticamente no GitHub Actions a cada push e pull request (`.github/workflows/e2e.yml`).
