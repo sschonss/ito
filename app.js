@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -36,8 +36,41 @@ const CATS = [
   { name:'Sentimentos e situações', themes:[
     ['Coisas que dão medo','nada','pavor'],['Situações constrangedoras','tranquilo','quero sumir'],['Coisas que fazem chorar','nada','choro rios'],
     ['Gestos românticos','brega','derrete o coração'],['Mentiras','inocente','imperdoável'],['Lembranças de infância','nada nostálgica','muita saudade'],
-    ['Coisas nojentas','de boa','nojento demais'],['Personalidades','calmíssima','explosiva'],['Dores','leve','insuportável'],['Coisas','dão sono','dão energia']]}
+    ['Coisas nojentas','de boa','nojento demais'],['Personalidades','calmíssima','explosiva'],['Dores','leve','insuportável'],['Coisas','dão sono','dão energia']]},
+  { name:'Comida brasileira', group:'Brasil', themes:[
+    ['Pratos típicos','odeio','amo'],['Salgados de festa','passo longe','pego três'],['Comidas de boteco','nunca peço','sempre peço'],
+    ['Coisas para pôr no pão francês','sem graça','perfeito'],['Doces de festa junina','dispensável','indispensável'],['Coberturas de açaí','nunca','sempre'],
+    ['Comidas de praia','evito','não vivo sem'],['Pratos para curar ressaca','não ajuda','ressuscita'],['Comidas pelo peso no estômago','leve','pesadíssima'],
+    ['Bebidas de boteco','nunca peço','sempre peço']]},
+  { name:'TV, novela e música', group:'Brasil', themes:[
+    ['Gêneros musicais','desligo o rádio','aumento o volume'],['Programas de TV de domingo','sono','imperdível'],['Tipos de vilão de novela','bonzinho','malvadíssimo'],
+    ['Músicas para karaokê','vergonha','show garantido'],['Bordões de TV','esquecido','todo mundo repete'],['Provas de reality show','moleza','desisto'],
+    ['Ritmos para dançar','fico parado','danço a noite toda'],['Reviravoltas de novela','previsível','ninguém esperava'],['Desenhos da infância','esquecível','marcou a vida'],
+    ['Memes brasileiros','já deu','ainda rio']]},
+  { name:'Coisas de família', group:'Brasil', themes:[
+    ['Coisas que mãe fala','raro','todo dia'],['Perguntas de tia no almoço','tranquila','constrangedora'],['Coisas da casa da vó','comum','só lá'],
+    ['Tarefas no almoço de domingo','moleza','ninguém quer'],['Presentes de amigo secreto','péssimo','perfeito'],['Brigas de família','bobagem','histórica'],
+    ['Coisas que pai faz','raro','sempre'],['Férias em família','tédio','inesquecível'],['Remédios caseiros','duvidoso','infalível'],
+    ['Apelidos de família','carinhoso','vergonhoso']]},
+  { name:'Vida no Brasil', group:'Brasil', themes:[
+    ['Coisas do trânsito','tranquilo','caos'],['Fantasias de carnaval','discreta','chamativa'],['Coisas para levar à praia','dispensável','essencial'],
+    ['Feriados','sem graça','o melhor do ano'],['Situações no ônibus','tranquila','pesadelo'],['Desculpas para chegar atrasado','esfarrapada','convincente'],
+    ['Coisas de churrasco','dispensável','indispensável'],['Lugares no verão','fresquinho','derretendo'],['Gírias','antiga','atual'],
+    ['Jeitinhos brasileiros','inocente','malandro demais']]},
+  { name:'Futebol', group:'Temáticos', themes:[
+    ['Posições no futebol','fácil','dificílimo'],['Motivos de briga no futebol','bobagem','guerra'],['Lances de futebol','sem graça','golaço'],
+    ['Coisas de pelada de fim de semana','normal','só lá'],['Desculpas depois de perder','fraca','convincente'],['Comidas de estádio','dispensável','tradição'],
+    ['Superstições de torcedor','bobagem','sagrada'],['Tipos de jogador na pelada','perna de pau','craque'],['Cantos de torcida','ninguém canta','estádio inteiro'],
+    ['Campeonatos','sem graça','emocionante'],['Erros de juiz','perdoável','inaceitável'],['Momentos de uma partida','sem emoção','de parar o coração'],
+    ['Comemorações de gol','sem graça','inesquecível']]},
+  { name:'Tecnologia', group:'Temáticos', themes:[
+    ['Gadgets','dispensável','indispensável'],['Problemas de computador','bobagem','desespero'],['Senhas','fraquíssima','impossível de quebrar'],
+    ['Notificações do celular','ignoro','abro na hora'],['Redes sociais','nunca uso','vivo nela'],['Tecnologias antigas','ninguém lembra','saudade'],
+    ['Invenções do futuro','bobagem','vai mudar tudo'],['Coisas que travam o celular','raro','sempre'],['Tarefas para pedir a uma IA','sem chance','perfeita'],
+    ['Erros do corretor automático','inofensivo','desastre'],['Acessórios de celular','inútil','não saio sem'],['Videogames','chato','viciante'],
+    ['Mensagens no grupo da família','normal','absurda']]}
 ];
+CATS.forEach(c=>c.group=c.group||'Clássicos');
 const ALL_MASK = (1<<CATS.length)-1;
 const THEMES = CATS.flatMap((c,ci)=>c.themes.map(t=>[t[0],t[1],t[2],ci]));
 
@@ -121,15 +154,15 @@ const theme=()=>themeOf(S);
 
 /* ---------- Código da sala: ABCD-EFGH ---------- */
 const L24='ABCDEFGHJKLMNPQRSTUVWXYZ';
-function enc(n,rounds,mask){ let v=((n-2)*MAX_ROUNDS+(rounds-1))*256+mask, s=''; for(let i=0;i<4;i++){ s=L24[v%24]+s; v=Math.floor(v/24); } return s; }
+const MASK_BITS=14;   // até 14 categorias no código da sala
+function enc(n,rounds,mask){ let v=(rounds-1)*(1<<MASK_BITS)+mask, s=''; for(let i=0;i<4;i++){ s=L24[v%24]+s; v=Math.floor(v/24); } return s; }
 function parseCode(raw){
   const s=(raw||'').trim().toUpperCase().replace(/[^A-Z]/g,'');
   if(s.length!==8 || [...s].some(c=>!L24.includes(c))) return null;
   let v=0; for(const c of s.slice(4)) v=v*24+L24.indexOf(c);
-  const mask=v%256; v=Math.floor(v/256);
-  const rounds=v%MAX_ROUNDS+1, n=Math.floor(v/MAX_ROUNDS)+2;
-  if(n<2 || n>10 || !(mask&ALL_MASK)) return null;
-  return { code:s.slice(0,4)+'-'+s.slice(4), n, rounds, mask:mask&ALL_MASK };
+  const mask=v%(1<<MASK_BITS), rounds=Math.floor(v/(1<<MASK_BITS))+1;
+  if(rounds<MIN_ROUNDS || rounds>MAX_ROUNDS || !(mask&ALL_MASK)) return null;
+  return { code:s.slice(0,4)+'-'+s.slice(4), n:10, rounds, mask:mask&ALL_MASK };
 }
 const parseHash=h=>parseCode(decodeURIComponent((h||'').replace(/^#/,'').split('~')[0]));
 function newRoom(){ const v=new Uint32Array(4); crypto.getRandomValues(v); return parseCode([...v].map(x=>L24[x%24]).join('')+enc(draft.players,draft.rounds,draft.mask)); }
@@ -182,6 +215,10 @@ function qrSvg(text){
 /* ======================================================================
    Tela inicial
    ====================================================================== */
+function catChips(){
+  const groups=[...new Set(CATS.map(c=>c.group))];
+  return groups.map(g=>`<p class="cat-group">${g}</p><div class="cats">${CATS.map((c,i)=>c.group!==g?'':`<button class="cat ${draft.mask&(1<<i)?'on':''}" data-act="toggleCat" data-v="${i}" aria-pressed="${!!(draft.mask&(1<<i))}">${c.name}<small>${c.themes.length}</small></button>`).join('')}</div>`).join('');
+}
 function home(keep){
   const typed=keep && $('#code') ? $('#code').value : '';
   S=null; P=null; setMeta(''); document.body.classList.remove('tv');
@@ -204,7 +241,7 @@ function home(keep){
     <div class="field-group"><span class="label">Rodadas</span>${stepper('rounds',draft.rounds,MIN_ROUNDS,MAX_ROUNDS,draft.rounds===1?'rodada':'rodadas')}</div>
     <div class="field-group">
       <div class="cat-head"><span class="label">Categorias de tema</span><button class="link-btn" data-act="allCats">${draft.mask===ALL_MASK?'Limpar':'Todas'}</button></div>
-      <div class="cats">${CATS.map((c,i)=>`<button class="cat ${draft.mask&(1<<i)?'on':''}" data-act="toggleCat" data-v="${i}" aria-pressed="${!!(draft.mask&(1<<i))}">${c.name}<small>${c.themes.length}</small></button>`).join('')}</div>
+      ${catChips()}
     </div>
     <button class="btn brand" data-act="create" ${draft.mask?'':'disabled'}>Criar sala</button>
   </section>
@@ -1222,7 +1259,7 @@ function passSetup(keep){
     <div class="field-group"><span class="label">Rodadas</span>${stepper('rounds',draft.rounds,MIN_ROUNDS,MAX_ROUNDS,draft.rounds===1?'rodada':'rodadas')}</div>
     <div class="field-group">
       <div class="cat-head"><span class="label">Categorias de tema</span><button class="link-btn" data-act="allCats">${draft.mask===ALL_MASK?'Limpar':'Todas'}</button></div>
-      <div class="cats">${CATS.map((c,i)=>`<button class="cat ${draft.mask&(1<<i)?'on':''}" data-act="toggleCat" data-v="${i}">${c.name}<small>${c.themes.length}</small></button>`).join('')}</div>
+      ${catChips()}
     </div>
     <button class="btn brand" data-act="passStart" ${draft.mask?'':'disabled'}>Começar</button>
   </section>

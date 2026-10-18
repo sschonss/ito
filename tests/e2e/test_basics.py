@@ -35,14 +35,17 @@ class TestBasics(E2E):
         p = await self.phone('Ana'); await p.goto()
         bad = await p.js("""() => {
           const out=[];
-          for(const n of [2,5,10]) for(const r of [1,5,20]) for(const m of [1,37,ALL_MASK]){
-            const c=parseCode('KQXT'+enc(n,r,m));
-            if(!c || c.n!==n || c.rounds!==r || c.mask!==m) out.push([n,r,m,c]);
+          for(const r of [1,5,20]) for(const m of [1,37,1<<8,1<<12,ALL_MASK]){
+            const c=parseCode('KQXT'+enc(10,r,m));
+            if(!c || c.rounds!==r || c.mask!==(m&ALL_MASK)) out.push([r,m,c]);
           }
           return out; }""")
         self.assertEqual(bad, [])
         self.assertIsNone(await p.js("parseCode('ABC')"))
         self.assertIsNone(await p.js("parseCode('ABCD-1234')"))
+        self.assertEqual(await p.js("CATS.filter(c=>c.group==='Brasil').length"), 4, 'pacotes do Brasil presentes')
+        self.assertEqual(await p.js("CATS.filter(c=>c.group==='Temáticos').map(c=>c.name)"), ['Futebol', 'Tecnologia'])
+        self.assertLessEqual(await p.js("CATS.length"), await p.js("MASK_BITS"), 'categorias cabem no código da sala')
 
     async def test_codigo_invalido_mostra_erro(self):
         p = await self.phone('Ana'); await p.goto()

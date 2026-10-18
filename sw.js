@@ -1,6 +1,6 @@
 /* ito — service worker
  * Ao publicar uma nova versão, aumente VERSION aqui e em app.js. */
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 const LIB_CACHE = 'ito-lib-1';
 const LIB_HOSTS = ['cdn.jsdelivr.net', 'esm.sh'];
 const CACHE = 'ito-' + VERSION;

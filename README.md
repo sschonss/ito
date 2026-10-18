@@ -29,6 +29,16 @@ Há dois jeitos de jogar:
 - Se o anfitrião cair, o próximo jogador conectado segura a partida provisoriamente. Quando ele volta, reassume sem perder nada.
 - Sem internet não tem jogo: o app mostra o aviso e o botão Tentar de novo.
 
+## Temas
+
+137 temas em 14 categorias, em três grupos:
+
+- **Clássicos:** comida e bebida, lugares e viagens, bichos e natureza, cotidiano, diversão e cultura, trabalho e estudo, fantasia e aventura, sentimentos e situações.
+- **Brasil:** comida brasileira, TV/novela/música, coisas de família, vida no Brasil.
+- **Temáticos:** futebol e tecnologia (dá para jogar só com um deles).
+
+Quem cria a sala escolhe as categorias; a escolha vai no código da sala (cabem até 14 categorias).
+
 ## Conexão
 
 > Detalhes técnicos de como a conexão entre celulares funciona: [`docs/p2p.md`](docs/p2p.md).
