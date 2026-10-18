@@ -3,7 +3,9 @@
  * Servidor TURN (opcional): ajuda quem está no 4G/5G a conectar quando a
  * conexão direta entre celulares falha.
  *
- * Como ativar (grátis):
+ * Passo a passo completo, com imagens do fluxo: docs/turn.md
+ *
+ * Resumo (grátis):
  *   1. Crie uma conta em https://www.metered.ca/stun-turn (plano gratuito).
  *   2. No painel, copie a lista "ICE Servers" (urls, username, credential).
  *   3. Cole os servidores TURN dentro de `turn` abaixo, assim:

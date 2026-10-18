@@ -1,6 +1,6 @@
 /* ito — service worker
  * Ao publicar uma nova versão, aumente VERSION aqui e em js/core.js. */
-const VERSION = '1.9.0';
+const VERSION = '2.0.0';
 const LIB_CACHE = 'ito-lib-1';
 const LIB_HOSTS = ['cdn.jsdelivr.net', 'esm.sh'];
 const CACHE = 'ito-' + VERSION;

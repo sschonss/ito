@@ -291,6 +291,35 @@ sequenceDiagram
 
 A impressão digital (`stateHash`) é um hash do estado inteiro. Se um único detalhe estiver diferente, o convidado pede o estado de novo. Isso corrige mensagens perdidas pela rede sem ninguém perceber.
 
+### Assinaturas: ninguém se passa pelo anfitrião
+
+Cada celular cria uma chave **ECDSA P-256** na primeira vez que abre o app (`initKeys()`, guardada em `ito-key`). A parte privada nunca sai do aparelho.
+
+| O quê | Quem assina | Quem confere |
+|---|---|---|
+| `hello` (apresentação) | o próprio jogador, sobre `cid|sala|horário` | o anfitrião. Na primeira vez guarda a chave do jogador (`players[].pk`); depois, um `hello` com o mesmo `cid` e outra chave é ignorado |
+| `state` | o anfitrião da vez, sobre o estado inteiro (`refreshSig()`) | todos (`stateValid()`) |
+| `tick`, `ack`, `pull`, ações | ninguém | não precisam: só pedem ao anfitrião, e quem decide é ele |
+
+O estado carrega a chave pública do dono da sala (`ownerPk`). O convite leva a **impressão digital** dela (`#ABCD-EFGH~v2~k<12 hex>`), então quem entra pelo link já sabe qual chave esperar. Quem entra só digitando o código guarda a chave do primeiro estado que recebe.
+
+```mermaid
+flowchart TD
+  M["Chegou um state"] --> O{"ownerPk confere com a<br/>impressão do link / a já guardada?"}
+  O -- não --> X["Ignora"]
+  O -- sim --> H{"hostCid é o dono?"}
+  H -- sim --> V1{"Assinado pela chave do dono?"}
+  H -- não --> P{"Dono fora do ar para mim,<br/>veio do próprio aparelho do provisório<br/>e a chave dele é a que eu conhecia?"}
+  P -- não --> X
+  P -- sim --> V2{"Assinado pela chave dele?"}
+  V1 -- sim --> OK["Segue para as regras de versão"]
+  V2 -- sim --> OK
+  V1 -- não --> X
+  V2 -- não --> X
+```
+
+O dono da sala, quando já está no comando, não aceita estado de mais ninguém (só enquanto está voltando, `NET.reclaiming`). Se o navegador não tiver criptografia (página aberta sem https), o app segue sem assinar.
+
 ### Toques ao mesmo tempo contam uma vez
 
 Toda ação leva junto `game`, `round` (e `themePos`). O anfitrião só aplica se bater com o estado atual:
@@ -351,7 +380,8 @@ sequenceDiagram
 | `ito-cid` | Identificador fixo do celular (para voltar ao mesmo lugar) |
 | `ito-name` | Nome escolhido |
 | `ito-online` | Sala atual, papel (`host`, `guest`, `tv`) e último estado, para reabrir o app e voltar à sala |
-| `ito-sound`, `ito-tips` | Preferências |
+| `ito-key` | Chave do celular (assinaturas) |
+| `ito-sound`, `ito-tips`, `ito-big` | Preferências (sons, dicas, letra maior) |
 
 ## 9. Sem internet
 
@@ -376,7 +406,7 @@ flowchart TD
 
 ## 11. TURN (opcional, recomendado para 4G/5G)
 
-Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retransmite os dados (que continuam criptografados de ponta a ponta). Para ativar, preencha `turn` em `config.js` (há o passo a passo no próprio arquivo, usando o plano gratuito da Metered). O app passa a lista para o Trystero via `turnConfig`.
+Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retransmite os dados (que continuam criptografados de ponta a ponta). Para ativar, preencha `turn` em `config.js`. Passo a passo para quem não é técnico: [`turn.md`](turn.md). O app passa a lista para o Trystero via `turnConfig`.
 
 ## 12. Limitações conhecidas
 
@@ -386,6 +416,7 @@ Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retra
 - **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Quando a rede volta, prevalece o estado mais novo e o dono da sala reassume.
 - **Sem internet não tem jogo:** não existe modo sem conexão.
 - **Não é à prova de trapaça:** como as cartas são calculadas no próprio celular, alguém que saiba inspecionar o código no navegador poderia descobrir os números. Para um jogo entre amigos isso é aceitável. Impedir exigiria um servidor que guardasse as cartas.
+- **Assinaturas protegem contra anfitrião falso, não contra quem já está na sala ver os números:** quem tem o código entra como jogador normal.
 - **Privacidade:** o código da sala é a senha da negociação. Quem tiver o código pode entrar (o anfitrião pode remover).
 
 ## 13. Como é testado
@@ -405,7 +436,9 @@ flowchart LR
   R -- "__deliverers" --> C3
   R -. "drop(): simula queda" .-> C1
 ```
- Assim dá para simular vários celulares, o telão, a queda do anfitrião e toques simultâneos sem depender da internet. Veja [`tests/e2e/README.md`](../tests/e2e/README.md).
+Assim dá para simular vários celulares, o telão, a queda do anfitrião, estados falsos e toques simultâneos sem depender da internet. Veja [`tests/e2e/README.md`](../tests/e2e/README.md).
+
+Além disso, o workflow **Conexão real** (`.github/workflows/p2p-real.yml`) roda todo dia `test_real_p2p.py` **sem** o relé falso: dois navegadores se conectam pelas redes públicas, primeiro só pelo Nostr, depois só pelo MQTT e depois pelas duas. Se um relay ou broker público mudar ou sair do ar, esse teste avisa antes de alguém tentar jogar.
 
 ## 14. Mapa do código (`js/`)
 

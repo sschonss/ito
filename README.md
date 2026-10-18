@@ -45,7 +45,8 @@ Quem cria a sala escolhe as categorias; a escolha vai no código da sala (cabem 
 
 - Os celulares se conectam direto entre si (WebRTC) usando [Trystero](https://github.com/dmotz/trystero), por **duas redes ao mesmo tempo** (Nostr e MQTT). Se uma falhar, a outra segura.
 - A biblioteca vem do jsDelivr (com esm.sh de reserva) e fica guardada no celular depois da primeira vez.
-- Para quem está no 4G/5G, um servidor **TURN** ajuda muito. Veja as instruções em `config.js`.
+- Para quem está no 4G/5G, um servidor **TURN** ajuda muito. Passo a passo (10 minutos, grátis): [`docs/turn.md`](docs/turn.md).
+- Cada celular cria uma chave própria. O anfitrião **assina** cada atualização da partida e os outros só aceitam o que vier assinado pela chave certa; o convite leva a impressão digital da chave do dono da sala. Ninguém consegue se passar pelo anfitrião ou entrar no lugar de outro jogador.
 
 ## PWA
 
@@ -64,7 +65,9 @@ Quem cria a sala escolhe as categorias; a escolha vai no código da sala (cabem 
 
 Testes end-to-end com Playwright rodam a cada push e pull request no GitHub Actions. Veja [`tests/e2e/README.md`](tests/e2e/README.md) para rodar no computador.
 
-![Testes](https://github.com/sschonss/ito/actions/workflows/e2e.yml/badge.svg)
+Uma vez por dia (e pelo botão **Run workflow**) roda também o teste de **conexão real**: dois celulares se conectam pela internet usando as redes de verdade, cada rede separada e as duas juntas.
+
+![Testes](https://github.com/sschonss/ito/actions/workflows/e2e.yml/badge.svg) ![Conexão real](https://github.com/sschonss/ito/actions/workflows/p2p-real.yml/badge.svg)
 
 ## Arquivos
 

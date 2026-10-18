@@ -1,6 +1,6 @@
 /* ito — Configuração, armazenamento, estado, sorteio, código da sala e componentes */
 'use strict';
-const VERSION = '1.9.0';
+const VERSION = '2.0.0';
 const MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 

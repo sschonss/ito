@@ -126,9 +126,9 @@ class Phone:
     async def set_name(self, name):
         await self.page.fill('#myName', name); await self.act('saveName')
 
-    async def join(self, url):
+    async def join(self, url, timeout=10.0):
         await self.goto(url)
-        await self.page.wait_for_selector('.roster, .statusbar', timeout=10000)
+        await self.page.wait_for_selector('.roster, .statusbar', timeout=max(timeout, 10.0) * 1000)
 
     async def seat(self):
         return await self.js("S && S.seat")
@@ -158,10 +158,15 @@ class E2E(unittest.IsolatedAsyncioTestCase):
         await self.browser.close(); await self.pw.stop()
         self.assertEqual(self.errors, [], 'erros de JavaScript na página')
 
-    async def phone(self, name, scheme='light', viewport=None, block_cdn=False):
+    async def phone(self, name, scheme='light', viewport=None, block_cdn=False, real=False, only=None):
+        """real=True usa a biblioteca e as redes de verdade (internet); only='n' ou 'm' deixa só uma das redes."""
         ctx = await self.browser.new_context(viewport=viewport or PHONE, color_scheme=scheme, service_workers='block')
         await ctx.expose_binding('__relay', self.relay.handle)
-        if block_cdn:
+        if real:
+            if only:
+                other = 'mqtt' if only == 'n' else 'nostr'
+                await ctx.route(re.compile(r'.*@trystero-p2p/' + other + r'.*'), lambda r: r.abort())
+        elif block_cdn:
             await ctx.route(CDN, lambda r: r.abort())
         else:
             async def route(r):
@@ -174,19 +179,19 @@ class E2E(unittest.IsolatedAsyncioTestCase):
         p = Phone(self, page, name); self.phones.append(p)
         return p
 
-    async def room(self, names=('Luiz', 'Ana', 'Pedro'), rounds=3, start=True):
+    async def room(self, names=('Luiz', 'Ana', 'Pedro'), rounds=3, start=True, wait=8.0, **kw):
         """Cria a sala com o primeiro celular e faz os outros entrarem pelo convite."""
-        host = await self.phone(names[0])
+        host = await self.phone(names[0], **kw)
         url = await host.create_room(rounds=rounds)
         await host.set_name(names[0])
         others = []
         for n in names[1:]:
-            p = await self.phone(n); await p.join(url); await p.set_name(n); others.append(p)
-        await host.until(f"NET.st.players.length==={len(names)} && NET.st.players.every(p=>p.name)", msg='todos na sala com nome')
+            p = await self.phone(n, **kw); await p.join(url, timeout=wait); await p.set_name(n); others.append(p)
+        await host.until(f"NET.st.players.length==={len(names)} && NET.st.players.every(p=>p.name)", timeout=wait, msg='todos na sala com nome')
         if start:
             await host.act('start')
             for p in [host] + others:
-                await p.until("S && S.status==='play' && S.seat>0", msg='partida começou')
+                await p.until("S && S.status==='play' && S.seat>0", timeout=wait, msg='partida começou')
                 if await p.count('[data-act=tipsOk]'): await p.act('tipsOk')
         return url, host, others
 
