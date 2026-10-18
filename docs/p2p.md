@@ -18,6 +18,30 @@ O ito roda só com o **GitHub Pages**, que serve arquivos estáticos (HTML, CSS,
 | TURN (opcional) | Retransmite o tráfego quando a conexão direta é bloqueada (comum no 4G/5G) | `config.js` |
 | Service worker | Guarda o app e a biblioteca no celular | `sw.js` |
 
+### Camadas dentro do app
+
+```mermaid
+flowchart TB
+  UI["Telas<br/>home · lobby · game · tv"]
+  ACT["Ações do usuário<br/>act.* (botões)"]
+  RULES["Regras do jogo<br/>applyAct · markOutOfPlace · checkRoundOver"]
+  STATE["Estado oficial<br/>NET.st (só o anfitrião altera)"]
+  NETL["Rede<br/>connect · onMsg · broadcast · sendTo"]
+  TRY["Trystero<br/>Nostr + MQTT"]
+  DET["Sorteio determinístico<br/>deckFor · themeAt"]
+  UI --> ACT
+  ACT -- "anfitrião: aplica direto" --> RULES
+  ACT -- "convidado: envia act" --> NETL
+  NETL --> TRY
+  TRY --> NETL
+  NETL -- "act recebido (anfitrião)" --> RULES
+  RULES --> STATE
+  STATE -- "hostCommit: state para todos" --> NETL
+  NETL -- "state recebido (convidado)" --> UI
+  DET --> UI
+  DET --> RULES
+```
+
 ## 2. Visão geral
 
 ```mermaid
@@ -39,6 +63,36 @@ flowchart LR
 3. Pelos relays, os celulares trocam as ofertas WebRTC (SDP e candidatos ICE).
 4. A conexão direta abre e, a partir daí, **a partida trafega só entre os celulares**. Os relays deixam de ser usados.
 
+### Passo a passo da conexão
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as 📱 Celular A
+  participant R as Relays (Nostr / MQTT)
+  participant S as STUN
+  participant B as 📱 Celular B
+  A->>R: entra no tópico da sala (hash do código + appId)
+  B->>R: entra no mesmo tópico
+  R-->>A: B está aqui
+  A->>S: qual é meu endereço público?
+  S-->>A: IP:porta
+  A->>R: oferta WebRTC (SDP), cifrada com a senha da sala
+  R-->>B: oferta
+  B->>S: qual é meu endereço público?
+  B->>R: resposta WebRTC (SDP)
+  R-->>A: resposta
+  A->>B: candidatos ICE (via relays)
+  B->>A: candidatos ICE (via relays)
+  alt caminho direto funciona
+    A->>B: data channel direto (DTLS, criptografado)
+    B->>A: dados nos dois sentidos
+  else NAT bloqueia (comum no 4G/5G)
+    A->>B: via servidor TURN (se configurado em config.js)
+  end
+  Note over A,B: daqui em diante os relays não são mais usados
+```
+
 ## 3. Duas redes ao mesmo tempo
 
 O app entra na mesma sala por **duas redes de sinalização em paralelo**: Nostr e MQTT. Se uma estiver fora do ar ou bloqueada, a outra segura.
@@ -57,6 +111,25 @@ const room = lib.joinRoom({ appId: APP_ID, password: code, turnConfig }, code);
 - Como dois celulares podem ficar conectados **pelas duas redes**, cada conexão recebe um prefixo (`n:abc123`, `m:xyz789`), e o app mapeia as duas para a mesma pessoa (o `CID`, um identificador guardado no celular).
 - Todas as mensagens são **idempotentes**: receber a mesma coisa duas vezes não muda nada. As reações têm um `id` para não aparecerem duplicadas.
 
+```mermaid
+flowchart LR
+  subgraph Ana
+    AN["conexão n:a1"]
+    AM["conexão m:a2"]
+  end
+  subgraph Luiz [Luiz · anfitrião]
+    MAP["NET.peers<br/>n:a1 → cid da Ana<br/>m:a2 → cid da Ana"]
+    DEDUP{"já processado?<br/>ver antigo, round antigo<br/>ou id de reação repetido"}
+  end
+  AN -- "Nostr" --> MAP
+  AM -- "MQTT" --> MAP
+  MAP --> DEDUP
+  DEDUP -- "novo" --> OK[aplica]
+  DEDUP -- "repetido" --> IGN[ignora]
+```
+
+Ana só é considerada **desconectada** quando as duas conexões caem.
+
 ## 4. O código da sala carrega a configuração
 
 O código tem 8 letras, como `KQXT-AVCR`:
@@ -72,6 +145,16 @@ function parseCode(raw) { ... }            // → { code, n, rounds, mask }
 
 Assim, quem digita o código já sabe tudo da sala, e o plano B (modo sem conexão) funciona mesmo sem rede.
 
+```mermaid
+flowchart LR
+  CODE["K Q X T - A V C R"] --> SEED["KQXT<br/>sorteio da sala<br/>semente das cartas e temas"]
+  CODE --> CFG["AVCR<br/>4 letras em base 24"]
+  CFG --> NUM["número = A·24³ + V·24² + C·24 + R"]
+  NUM --> J["jogadores = número ÷ 256 ÷ 20 + 2"]
+  NUM --> RD["rodadas = (número ÷ 256) mod 20 + 1"]
+  NUM --> CAT["categorias = número mod 256<br/>(1 bit por categoria)"]
+```
+
 ## 5. Ninguém envia as cartas: sorteio determinístico
 
 Todos os celulares geram **o mesmo baralho embaralhado** a partir da mesma semente:
@@ -84,6 +167,22 @@ const deckFor = (code, game, round) => shuffle([1..100], rng(code + '|' + game +
 - `rng` é um gerador pseudoaleatório (xmur3 + mulberry32): mesma semente, mesma sequência, em qualquer aparelho.
 - O tema da rodada usa a mesma ideia (`themeAt(code, posição)`).
 - Consequência: a rede só transmite **decisões** (quem jogou, ordem, votos, dicas), nunca números. Ninguém digita a própria carta, então ninguém consegue mentir pelo app.
+
+```mermaid
+flowchart TB
+  SEMENTE["semente = código | partida | rodada<br/>ex.: KQXT-AVCR|1|2"] --> RNG["rng (xmur3 + mulberry32)"]
+  RNG --> EMB["embaralha 1…100<br/>(Fisher–Yates)"]
+  EMB --> D["baralho: 57, 12, 88, 31, …"]
+  D --> L1["lugar 1 (Luiz) → 57"]
+  D --> L2["lugar 2 (Ana) → 12"]
+  D --> L3["lugar 3 (Pedro) → 88"]
+  subgraph "cada celular faz a mesma conta"
+    RNG
+    EMB
+  end
+```
+
+Cada celular mostra só a própria carta. As outras só aparecem quando vão para a mesa.
 
 ## 6. Anfitrião: a fonte da verdade
 
@@ -134,6 +233,35 @@ Cada mudança aumenta `ver`, e o anfitrião envia o estado inteiro para todos (`
 | `react {e, by, id}` | qualquer → todos | Reação com emoji (não passa pelo estado) |
 | `full` / `kicked` / `closed` | anfitrião → convidado | Sala cheia, removido ou sala encerrada |
 
+### Telão (TV ou notebook)
+
+```mermaid
+flowchart LR
+  TV["📺 Telão"] -- "hello {spectator: true}" --> H["📱 Anfitrião"]
+  H -- "state (não ganha lugar nem carta)" --> TV
+  H -- "state" --> J1["📱 Jogadores"]
+  J1 -- "react" --> TV
+```
+
+### Ciclo da partida
+
+```mermaid
+stateDiagram-v2
+  [*] --> lobby: anfitrião cria a sala
+  lobby --> lobby: hello · name · kick · move
+  lobby --> jogando: start (só o anfitrião)
+  state jogando {
+    [*] --> rodada
+    rodada --> rodada: hint · plan · skip · custom · vote
+    rodada --> rodada: play (uma carta)
+    rodada --> revelada: reveal ou última carta jogada
+    revelada --> rodada: next (round + 1)
+  }
+  jogando --> fim: next na última rodada
+  fim --> jogando: restart (game + 1)
+  fim --> [*]: encerrar sala
+```
+
 ### Toques ao mesmo tempo contam uma vez
 
 Toda ação leva junto `game`, `round` (e `themePos`). O anfitrião só aplica se bater com o estado atual:
@@ -167,6 +295,25 @@ flowchart TD
 - Em caso de empate de versão, vence o menor `hostCid`, para não ficar trocando.
 - Quem não está conectado sai da conta da rodada (as cartas dele não bloqueiam o fim da rodada).
 
+### Quando o antigo anfitrião volta
+
+```mermaid
+sequenceDiagram
+  participant L as 📱 Luiz (anfitrião antigo)
+  participant A as 📱 Ana (nova anfitriã)
+  participant P as 📱 Pedro
+  Note over L: celular caiu na rodada 2
+  A->>A: assume após 5 s<br/>hostCid = Ana, ver 20 → 21
+  A-->>P: state {ver 21, hostCid Ana}
+  Note over L: Luiz reabre o app<br/>(estado salvo: ver 20, hostCid Luiz)
+  L->>A: state {ver 20}
+  A->>A: newerState? não → ignora
+  A-->>L: state {ver 21, hostCid Ana}
+  L->>L: versão maior e outro anfitrião<br/>→ vira convidado
+  L->>A: hello {cid do Luiz}
+  A-->>L: state (Luiz volta ao mesmo lugar)
+```
+
 ## 8. Guardado no celular
 
 | Chave (`localStorage`) | Conteúdo |
@@ -184,6 +331,19 @@ Se a biblioteca não carregar (sem internet) ou a sala não for encontrada em 15
 - cada pessoa escolhe seu número de lugar;
 - o sorteio determinístico garante as mesmas cartas e temas em todos os celulares;
 - todos apertam o mesmo botão (Acertamos/Erramos) ao fim da rodada.
+
+```mermaid
+flowchart TD
+  OPEN["Abre o convite"] --> LOAD{"Biblioteca carregou?"}
+  LOAD -- não --> NOINT["Sem internet"]
+  LOAD -- sim --> FIND{"Achou o anfitrião em 15 s?"}
+  FIND -- sim --> ONLINE["Sala conectada"]
+  FIND -- não --> NOTFOUND["Não achamos a sala ainda"]
+  NOINT --> LOCAL["Jogar sem conexão<br/>escolhe o número do lugar"]
+  NOTFOUND --> LOCAL
+  NOTFOUND -- "Tentar de novo" --> FIND
+  ONLINE -- "anfitrião caiu e ninguém assumiu" --> LOCAL2["Jogar sem conexão<br/>continua da mesma rodada"]
+```
 
 Se o anfitrião cair no meio do jogo, também dá para seguir sem conexão de onde parou.
 
@@ -208,7 +368,22 @@ Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retra
 
 ## 13. Como é testado
 
-Os testes end-to-end (`tests/e2e`) trocam a biblioteca real por um **relé falso** (`fake_p2p.mjs`) que imita as duas redes dentro do próprio teste. Assim dá para simular vários celulares, o telão, a queda do anfitrião e toques simultâneos sem depender da internet. Veja [`tests/e2e/README.md`](../tests/e2e/README.md).
+Os testes end-to-end (`tests/e2e`) trocam a biblioteca real por um **relé falso** (`fake_p2p.mjs`) que imita as duas redes dentro do próprio teste.
+
+```mermaid
+flowchart LR
+  subgraph Chromium
+    C1["📱 contexto 1"]
+    C2["📱 contexto 2"]
+    C3["📺 contexto 3"]
+  end
+  C1 -- "import do CDN (interceptado)" --> F["fake_p2p.mjs"]
+  F -- "__relay()" --> R["Relay (Python)<br/>tópicos n| e m|"]
+  R -- "__deliverers" --> C2
+  R -- "__deliverers" --> C3
+  R -. "drop(): simula queda" .-> C1
+```
+ Assim dá para simular vários celulares, o telão, a queda do anfitrião e toques simultâneos sem depender da internet. Veja [`tests/e2e/README.md`](../tests/e2e/README.md).
 
 ## 14. Mapa do código (`app.js`)
 
