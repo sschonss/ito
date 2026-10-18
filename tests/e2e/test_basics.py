@@ -18,14 +18,19 @@ class TestBasics(E2E):
         self.assertEqual(await p.count('[data-act=joinTv]'), 1)
 
     async def test_arquivos_do_pwa_existem_e_versoes_batem(self):
-        sw = read(f'{ROOT}/sw.js'); app = read(f'{ROOT}/app.js')
+        sw = read(f'{ROOT}/sw.js'); app = read(f'{ROOT}/js/core.js')
         v_sw = re.search(r"const VERSION = '([^']+)'", sw).group(1)
         v_app = re.search(r"const VERSION = '([^']+)'", app).group(1)
-        self.assertEqual(v_sw, v_app, 'aumente VERSION igual em app.js e sw.js')
-        assets = re.findall(r"'([^']+)'", sw[sw.index('const ASSETS'):sw.index('];')])
+        self.assertEqual(v_sw, v_app, 'aumente VERSION igual em js/core.js e sw.js')
+        assets = re.findall(r"'([^']+)'", sw[sw.index('const ASSETS'):sw.index('];', sw.index('const ASSETS'))])
+        self.assertGreater(len(assets), 10)
         for a in assets:
             with urllib.request.urlopen(base_url() + ('' if a == './' else a)) as r:
                 self.assertEqual(r.status, 200, a)
+        # todos os arquivos js/ carregados pela página também ficam guardados para jogar sem internet
+        html = read(f'{ROOT}/index.html')
+        for src in re.findall(r'<script src="([^"]+)"', html):
+            self.assertIn(src, assets, f'{src} falta no sw.js')
         manifest = json.loads(read(f'{ROOT}/manifest.webmanifest'))
         for icon in manifest['icons']:
             with urllib.request.urlopen(base_url() + icon['src']) as r:

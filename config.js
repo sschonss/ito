@@ -13,7 +13,7 @@
  *        { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: 'SEU_USUARIO', credential: 'SUA_SENHA' }
  *      ]
  *
- *   4. Aumente VERSION em app.js e sw.js e publique.
+ *   4. Aumente VERSION em js/core.js e sw.js e publique.
  */
 window.ITO_CONFIG = {
   turn: []

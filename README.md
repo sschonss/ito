@@ -56,7 +56,7 @@ Quem cria a sala escolhe as categorias; a escolha vai no código da sala (cabem 
 ## Publicar uma nova versão
 
 1. Altere os arquivos.
-2. Aumente `VERSION` em `app.js` **e** em `sw.js`.
+2. Aumente `VERSION` em `js/core.js` **e** em `sw.js`.
 3. Rode os testes (`python -m unittest discover -s tests/e2e -t tests/e2e`).
 4. Faça o commit na branch `main`. O GitHub Pages publica sozinho e os testes rodam no Actions.
 
@@ -72,7 +72,7 @@ Testes end-to-end com Playwright rodam a cada push e pull request no GitHub Acti
 |---|---|
 | `index.html` | Estrutura da página |
 | `styles.css` | Visual (tema claro e escuro) |
-| `app.js` | Lógica do jogo |
+| `js/` | Lógica do jogo, em partes carregadas nesta ordem: `themes` (temas e ícones), `core` (estado, sorteio, código da sala, componentes), `home`, `crypto` (chaves e assinaturas), `net` (conexão e sincronia), `rules` (regras do anfitrião), `screens`, `effects` (sons, votação, destaques), `ruler` (régua e telão), `actions` (menu e botões), `pass` (celular só), `boot` (início) |
 | `sw.js` | Service worker (cache offline) |
 | `config.js` | Servidor TURN opcional |
 | `lib/qrcodegen.js` | Gerador de QR code (Project Nayuki, MIT) |

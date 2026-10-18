@@ -10,7 +10,7 @@ O ito roda só com o **GitHub Pages**, que serve arquivos estáticos (HTML, CSS,
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| GitHub Pages | Serve o app (arquivos estáticos) | `index.html`, `app.js`, `styles.css` |
+| GitHub Pages | Serve o app (arquivos estáticos) | `index.html`, `js/*.js`, `styles.css` |
 | WebRTC (data channel) | Canal direto e criptografado entre dois celulares | navegador |
 | Trystero | Monta as conexões WebRTC e cuida da sinalização | carregado do jsDelivr (`@trystero-p2p/nostr` e `@trystero-p2p/mqtt`, v0.25.4) |
 | Relays Nostr e brokers MQTT públicos | "Quadro de avisos" onde os celulares trocam os dados para se conectar | serviços de terceiros, gratuitos |
@@ -98,7 +98,7 @@ sequenceDiagram
 O app entra na mesma sala por **duas redes de sinalização em paralelo**: Nostr e MQTT. Se uma estiver fora do ar ou bloqueada, a outra segura.
 
 ```js
-// app.js — connect()
+// js/net.js — connect()
 const P2P = {
   n: ['https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.25.4/+esm', 'https://esm.sh/@trystero-p2p/nostr@0.25.4'],
   m: ['https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt@0.25.4/+esm',  'https://esm.sh/@trystero-p2p/mqtt@0.25.4']
@@ -407,7 +407,9 @@ flowchart LR
 ```
  Assim dá para simular vários celulares, o telão, a queda do anfitrião e toques simultâneos sem depender da internet. Veja [`tests/e2e/README.md`](../tests/e2e/README.md).
 
-## 14. Mapa do código (`app.js`)
+## 14. Mapa do código (`js/`)
+
+Os arquivos são scripts comuns carregados em ordem pelo `index.html` e compartilham o mesmo escopo. A rede fica em `js/net.js`, as assinaturas em `js/crypto.js` e as regras em `js/rules.js`.
 
 | Função | Papel |
 |---|---|

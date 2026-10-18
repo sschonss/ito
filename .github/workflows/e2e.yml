@@ -32,7 +32,7 @@ jobs:
 
       - name: Checar sintaxe dos scripts
         run: |
-          node --check app.js
+          for f in js/*.js sw.js config.js; do node --check "$f"; done
           node --check sw.js
           node --check config.js
 

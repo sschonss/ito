@@ -17,7 +17,7 @@ Capturas de tela de cada teste ficam em `tests/e2e/artifacts/`.
 
 | Arquivo | Cobre |
 |---|---|
-| `test_basics.py` | Tela inicial, arquivos do PWA, versões iguais em `app.js`/`sw.js`, código da sala, regra de "fora do lugar", mesmas cartas em todos os celulares |
+| `test_basics.py` | Tela inicial, arquivos do PWA, versões iguais em `js/core.js`/`sw.js`, código da sala, regra de "fora do lugar", mesmas cartas em todos os celulares |
 | `test_offline.py` | Sem internet → aviso e Tentar de novo (não existe modo sem conexão) |
 | `test_online_game.py` | Lobby (nomes, ordem, remover jogador), partida completa (votação, dicas, ordem combinada, revelação certa e errada, um por um, fim de jogo, resumo, jogar de novo), toques simultâneos, reações sem duplicar, tema da turma, telão, votação (empate, cancelar), só o anfitrião comanda |
 | `test_pass.py` | Num celular só, sem internet: distribuir com tela escondida, dicas, ordem, revelar certo/errado, fim, jogar de novo, continuar após fechar, ver a carta de novo, mudar tema |
