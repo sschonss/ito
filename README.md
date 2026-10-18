@@ -23,6 +23,8 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 
 ## Conexão
 
+> Detalhes técnicos de como a conexão entre celulares funciona: [`docs/p2p.md`](docs/p2p.md).
+
 - Os celulares se conectam direto entre si (WebRTC) usando [Trystero](https://github.com/dmotz/trystero), por **duas redes ao mesmo tempo** (Nostr e MQTT). Se uma falhar, a outra segura.
 - A biblioteca vem do jsDelivr (com esm.sh de reserva) e fica guardada no celular depois da primeira vez.
 - Para quem está no 4G/5G, um servidor **TURN** ajuda muito. Veja as instruções em `config.js`.
