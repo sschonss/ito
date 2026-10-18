@@ -506,3 +506,7 @@ body.tv .r-cap{font-size:16px}
 .last-round[open] summary{margin-bottom:8px}
 .react-fab.on{font-size:18px;color:var(--ink-2)}
 .dock .btn:disabled{opacity:.6}
+.vote-who{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 0}
+.vote-who span{font-size:12px;padding:3px 10px;border-radius:999px;background:var(--surface-2);color:var(--ink-2)}
+.vote-who span.done{background:var(--ok);color:var(--ok-ink)}
+.vote-note{font-size:12px;color:var(--ink-2);margin:8px 0 0}

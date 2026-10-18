@@ -128,3 +128,33 @@ class TestTelao(E2E):
         await host.js("sendAct('reveal',{order:planOrder()})")
         await tv.page.wait_for_selector('.tv-table .ruler')
         self.assertEqual(await tv.count('.tv-table .r-label'), 3)
+
+
+class TestVotacao(E2E):
+    async def test_empate_sorteia_e_avisa_e_tema_perdedor_nao_volta(self):
+        url, host, (ipad,) = await self.room(names=('Luiz', 'iPad'), rounds=5)
+        both = [host, ipad]
+        await ipad.act('themeMenu'); await ipad.page.locator('#dlgActions [value=voteStart]').click()
+        await self.all_until(both, "S.vote", 'votação aberta')
+        opts = await host.js("S.vote.opts.map(p=>themeAt(S,p)[0])")
+        await host.page.locator('.vote-opt[data-i="0"]').click()
+        await ipad.until("Object.keys(S.vote.votes).length===1")
+        self.assertIn('✓', await ipad.text('.vote-who'), 'mostra quem já votou')
+        await ipad.page.locator('.vote-opt[data-i="1"]').click()
+        await self.all_until(both, "!S.vote", 'empate resolvido')
+        escolhido = await host.js("theme()[0]")
+        self.assertIn(escolhido, opts)
+        await host.until("[...document.querySelectorAll('#toast')].some(t=>t.textContent.includes('Empate'))", msg='avisa o empate')
+        # a opção que perdeu não aparece na rodada seguinte
+        await host.js("sendAct('reveal',{order:planOrder()})"); await self.all_until(both, "S.roundOver")
+        await host.js("sendAct('next')"); await self.all_until(both, "S.round===2")
+        self.assertNotIn(await host.js("theme()[0]"), opts)
+
+    async def test_encerrar_sem_votos_mantem_o_tema(self):
+        url, host, (ana,) = await self.room(names=('Luiz', 'Ana'))
+        antes = await host.js("theme()[0]")
+        await ana.act('themeMenu'); await ana.page.locator('#dlgActions [value=voteStart]').click()
+        await host.until("S.vote")
+        await host.act('voteEnd')
+        await self.all_until([host, ana], "!S.vote")
+        self.assertEqual(await ana.js("theme()[0]"), antes)

@@ -1,5 +1,5 @@
 'use strict';
-const VERSION = '1.5.2';
+const VERSION = '1.5.3';
 const STORE = 'ito-game-v2', MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 /* ---------- Temas por categoria: [título, o que é 1, o que é 100] ---------- */
@@ -417,7 +417,8 @@ function applyAct(st, a, by){
     return true;
   }
   if(a.t==='voteStart' && st.phase==='play' && fresh && !st.table.length && !st.vote){
-    st.vote={opts:[st.themePos+1, st.themePos+2], votes:{}};
+    const p0=nextThemePos(st);
+    st.vote={opts:[p0, p0+1], votes:{}};
     setEv(st,'vote',by); return true;
   }
   if(a.t==='vote' && st.vote && fresh && (a.i===0||a.i===1)){
@@ -431,17 +432,17 @@ function applyAct(st, a, by){
     if(st.results.length>=st.rounds){
       st.phase='done';
       st.history=(st.history||[]).concat({game:st.game, score:st.results.filter(x=>x===1).length, total:st.rounds});
-    } else { st.round++; st.themePos++; st.table=[]; st.roundOver=false; st.custom=null; }
+    } else { st.round++; st.themePos=nextThemePos(st); st.table=[]; st.roundOver=false; st.custom=null; }
     st.hints={}; st.vote=null; st.plan=[];
     setEv(st,'next',by); return true;
   }
-  if(a.t==='skip' && st.phase==='play' && a.themePos===st.themePos && !st.table.length){ st.themePos++; st.custom=null; st.vote=null; setEv(st,'skip',by); return true; }
+  if(a.t==='skip' && st.phase==='play' && a.themePos===st.themePos && !st.table.length){ st.themePos=nextThemePos(st); st.custom=null; st.vote=null; setEv(st,'skip',by); return true; }
   if(a.t==='custom' && st.phase==='play' && fresh && !st.table.length && a.title){
     st.custom={title:String(a.title).slice(0,60), low:String(a.low||'pouco').slice(0,30), high:String(a.high||'muito').slice(0,30)}; st.vote=null;
     setEv(st,'custom',by); return true;
   }
   if(a.t==='restart' && st.phase==='done' && a.game===st.game){
-    st.game++; st.round=1; st.results=[]; st.themePos++; st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[];
+    st.game++; st.round=1; st.results=[]; st.themePos=nextThemePos(st); st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[];
     setEv(st,'restart',by); return true;
   }
   if(isHost && st.phase==='lobby' && (a.t==='kick' || a.t==='move')){
@@ -474,10 +475,15 @@ function playSeat(st, seat){
 }
 function resolveVote(st, by){
   const v=st.vote, c=[0,0]; Object.values(v.votes).forEach(i=>c[i]++);
-  const w=c[1]>c[0]?1:0;
-  st.themePos=v.opts[w]; st.custom=null; st.vote=null;
-  setEv(st,'voted',by,{title:themeAt(st,st.themePos)[0]});
+  st.vote=null;
+  if(c[0]+c[1]===0){ setEv(st,'voteCancel',by); return; }
+  const tie=c[0]===c[1];
+  const w=tie ? (rng(st.code+'|vote|'+st.game+'|'+st.round+'|'+v.opts.join(','))()<.5?0:1) : (c[1]>c[0]?1:0);
+  st.themePos=v.opts[w]; st.custom=null;
+  st.themeFloor=Math.max(st.themeFloor||0, ...v.opts);   // as duas opções não voltam nas próximas rodadas
+  setEv(st,'voted',by,{title:themeAt(st,st.themePos)[0], tie});
 }
+const nextThemePos=st=>Math.max(st.themePos, st.themeFloor||0)+1;
 function hostCommit(){
   NET.st.ver=(NET.st.ver||0)+1;
   saveOnline(); broadcast({t:'state', st:NET.st}); showOnline();
@@ -549,7 +555,8 @@ function announce(st){
     return;
   }
   if(ev.k==='newhost'){ toast(mine?'Você agora é o anfitrião':`${ev.by} agora é o anfitrião`); return; }
-  if(ev.k==='voted'){ SFX.pop(); toast(`Tema escolhido: ${ev.title}`); return; }
+  if(ev.k==='voted'){ SFX.pop(); toast(ev.tie?`Empate! Sorteado: ${ev.title}`:`Tema escolhido: ${ev.title}`); return; }
+  if(ev.k==='voteCancel'){ toast('Votação cancelada, o tema continua o mesmo'); return; }
   if(ev.k==='next' && st.phase==='done'){
     const pct=st.results.filter(x=>x===1).length/st.rounds;
     vibrate([60,40,60]); if(pct>=.5){ SFX.win(); confetti(); }
@@ -828,6 +835,8 @@ function votePanel(){
     <div class="row-between"><h2>Qual tema?</h2><span class="count">${c[0]+c[1]} de ${total} votaram</span></div>
     ${v.opts.map((pos,i)=>{ const t=themeAt(S,pos); return `<button class="vote-opt ${mine===i?'on':''}" data-act="vote" data-i="${i}" ${NET.spectator?'disabled':''}>
       <span><strong>${esc(t[0])}</strong><small>1 = ${esc(t[1])} · 100 = ${esc(t[2])}</small></span><em>${c[i]}</em></button>`; }).join('')}
+    <p class="vote-who">${S.players.filter(p=>p.on).map(p=>`<span class="${p.cid in v.votes?'done':''}">${esc(p.name||'Jogador '+p.seat)}${p.cid in v.votes?' ✓':''}</span>`).join('')}</p>
+    <p class="vote-note">Quando todos votarem, o tema muda sozinho. Empate é decidido no sorteio.</p>
     ${NET.spectator?'':'<button class="link-btn" data-act="voteEnd">Encerrar votação agora</button>'}
   </section>`;
 }
