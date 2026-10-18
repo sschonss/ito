@@ -37,7 +37,14 @@ Versão web (PWA) do jogo cooperativo **ito**, para jogar com os amigos, cada um
 
 1. Altere os arquivos.
 2. Aumente `VERSION` em `app.js` **e** em `sw.js`.
-3. Faça o commit na branch `main`. O GitHub Pages publica sozinho.
+3. Rode os testes (`python -m unittest discover -s tests/e2e -t tests/e2e`).
+4. Faça o commit na branch `main`. O GitHub Pages publica sozinho e os testes rodam no Actions.
+
+## Testes
+
+Testes end-to-end com Playwright rodam a cada push e pull request no GitHub Actions. Veja [`tests/e2e/README.md`](tests/e2e/README.md) para rodar no computador.
+
+![Testes](https://github.com/sschonss/ito/actions/workflows/e2e.yml/badge.svg)
 
 ## Arquivos
 
