@@ -279,6 +279,93 @@ function home(keep){
   input.addEventListener('input',()=>{ $('#err').textContent=''; const raw=input.value.toUpperCase().replace(/[^A-Z]/g,'').slice(0,8); input.value=raw.length>4?raw.slice(0,4)+'-'+raw.slice(4):raw; });
 }
 
+
+/* ======================================================================
+   Assinaturas: cada aparelho tem uma chave (ECDSA P-256) criada no próprio
+   celular. O anfitrião assina cada estado; a apresentação (hello) também é
+   assinada. Assim ninguém consegue se passar pelo anfitrião ou por outro jogador.
+   ====================================================================== */
+const KEYS={priv:null, pk:null, fp:'', ok:false};
+const b64u=buf=>btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64u=str=>{ const s=atob(str.replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from(s,c=>c.charCodeAt(0)); };
+const ECDSA={name:'ECDSA', namedCurve:'P-256'}, SIGN={name:'ECDSA', hash:'SHA-256'};
+async function fingerprint(pk){
+  const h=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pk.x+'.'+pk.y));
+  return [...new Uint8Array(h)].slice(0,6).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function initKeys(){
+  if(!(window.crypto && crypto.subtle)) return;           // sem criptografia (página sem https): segue sem assinar
+  try{
+    const saved=ls.get('ito-key',null);
+    if(saved){ KEYS.priv=await crypto.subtle.importKey('jwk', saved.priv, ECDSA, false, ['sign']); KEYS.pk=saved.pk; }
+    else{
+      const kp=await crypto.subtle.generateKey(ECDSA, true, ['sign','verify']);
+      const priv=await crypto.subtle.exportKey('jwk', kp.privateKey), pub=await crypto.subtle.exportKey('jwk', kp.publicKey);
+      KEYS.priv=kp.privateKey; KEYS.pk={x:pub.x, y:pub.y}; ls.set('ito-key',{priv, pk:KEYS.pk});
+    }
+    KEYS.fp=await fingerprint(KEYS.pk); KEYS.ok=true;
+  }catch(e){ console.warn('ito: sem chave', e); }
+}
+async function signText(text){
+  if(!KEYS.ok) return '';
+  return b64u(await crypto.subtle.sign(SIGN, KEYS.priv, new TextEncoder().encode(text)));
+}
+const keyCache=new Map();
+async function verifyText(pk, text, sig){
+  if(!(window.crypto && crypto.subtle)) return true;
+  if(!pk || !pk.x || !pk.y || typeof sig!=='string' || !sig) return false;
+  try{
+    const id=pk.x+'.'+pk.y;
+    let key=keyCache.get(id);
+    if(!key){ key=await crypto.subtle.importKey('jwk',{kty:'EC',crv:'P-256',x:pk.x,y:pk.y,ext:true},ECDSA,false,['verify']); keyCache.set(id,key); }
+    return await crypto.subtle.verify(SIGN, key, unb64u(sig), new TextEncoder().encode(text));
+  }catch(e){ return false; }
+}
+const samePk=(a,b)=>!!a && !!b && a.x===b.x && a.y===b.y;
+/* Apresentação assinada: prova que quem diz ser o jogador X tem a chave dele */
+async function sendHello(peer){
+  const ts=Date.now(), base={t:'hello', cid:CID, name:myName, spectator:NET.spectator, pk:KEYS.pk, ts};
+  base.sig=await signText(CID+'|'+NET.code+'|'+ts);
+  sendTo(peer, base);
+}
+async function helloValid(m){
+  if(!KEYS.ok) return true;
+  return verifyText(m.pk, m.cid+'|'+NET.code+'|'+m.ts, m.sig);
+}
+/* Estado assinado pelo anfitrião da vez */
+async function refreshSig(){
+  const st=NET.st; if(!st) return;
+  const ver=st.ver, sig=await signText(JSON.stringify(st));
+  if(NET.st===st && st.ver===ver){ NET.sig=sig; NET.sigVer=ver; return true; }
+  return false;
+}
+function stateMsg(force){ return {t:'state', st:NET.st, sig:NET.sigVer===NET.st.ver?NET.sig:'', force:!!force}; }
+function sendState(peer, force){ if(NET.sigVer===NET.st.ver || !KEYS.ok) sendTo(peer, stateMsg(force)); }
+async function stateValid(m, peer){
+  if(!KEYS.ok) return true;
+  const st=m.st;
+  if(!st.ownerPk) return false;
+  // dono da sala fixado: pela impressão no link, ou pelo primeiro estado aceito
+  if(NET.pinOwnerPk){ if(!samePk(NET.pinOwnerPk, st.ownerPk)) return false; }
+  else if(NET.pinFp){ if(await fingerprint(st.ownerPk)!==NET.pinFp) return false; }
+  let signer;
+  if(st.hostCid===st.ownerCid) signer=st.ownerPk;
+  else{
+    // anfitrião provisório: só vale enquanto o dono da sala está fora, e vindo do próprio aparelho dele
+    if(st.ownerCid!==CID && aliveCids().has(st.ownerCid)) return false;
+    if(st.ownerCid===CID && NET.role==='host' && !NET.reclaiming) return false;   // o dono, já no comando, não aceita outro chefe
+    if(NET.peers[peer]!==st.hostCid) return false;
+    // a chave dele tem que ser a que já conhecíamos
+    // (quem acabou de chegar e ainda não conhece ninguém aceita a chave listada no estado)
+    const known=(NET.st && NET.st.code===st.code ? NET.st : st).players.find(p=>p.cid===st.hostCid);
+    if(!known || !known.pk) return false;
+    signer=known.pk;
+    const inNew=st.players.find(p=>p.cid===st.hostCid);
+    if(!inNew || !samePk(inNew.pk, known.pk)) return false;
+  }
+  return verifyText(signer, JSON.stringify(st), m.sig);
+}
+
 /* ======================================================================
    Rede: duas redes ao mesmo tempo (Nostr e MQTT).
    O ANFITRIÃO É A ÚNICA VERDADE: só ele altera o estado; os outros pedem
@@ -291,7 +378,7 @@ function netReset(){
   NET.links.forEach(l=>{ try{ l.room.leave(); }catch(e){} });
   clearTimeout(NET.timer); clearTimeout(NET.graceTimer); clearTimeout(NET.reclaimTimer); clearInterval(NET.syncTimer);
   Object.assign(NET,{links:[],role:null,code:null,st:null,peers:{},failed:false,timedOut:false,timer:null,graceTimer:null,
-    fresh:false,spectator:false,acks:{},reclaiming:false,reclaimTimer:null,syncTimer:null});
+    fresh:false,spectator:false,acks:{},reclaiming:false,reclaimTimer:null,syncTimer:null,sig:'',sigVer:-1,pinFp:null,pinOwnerPk:null,ownerFp:''});
 }
 async function loadLib(kind){
   if(NET.libs[kind]) return NET.libs[kind];
@@ -347,8 +434,8 @@ function saveOnline(){
   else if(NET.role==='guest') ls.set(ONLINE_KEY,{code:NET.code, role:NET.spectator?'tv':'guest', st:NET.st});
 }
 function onPeerJoin(peer){
-  sendTo(peer, {t:'hello', cid:CID, name:myName, spectator:NET.spectator});
-  if(isHostNow()) sendTo(peer, {t:'state', st:NET.st});
+  sendHello(peer);
+  if(isHostNow()) sendState(peer);
 }
 function onPeerLeave(peer){
   const cid=NET.peers[peer]; delete NET.peers[peer];
@@ -395,12 +482,15 @@ function newerState(a,b){ // a é mais nova que b?
 }
 function acceptState(st, peer){
   NET.st=st; NET.fresh=true; NET.timedOut=false; clearTimeout(NET.timer); clearTimeout(NET.graceTimer);
-  if(!NET.spectator && !st.players.some(p=>p.cid===CID)) sendTo(peer,{t:'hello', cid:CID, name:myName});
+  if(!NET.pinOwnerPk && st.ownerPk){ NET.pinOwnerPk=st.ownerPk; fingerprint(st.ownerPk).then(fp=>{ NET.ownerFp=fp; history.replaceState(null,'',roomHash(st.code)); }).catch(()=>{}); }
+  if(!NET.spectator && !st.players.some(p=>p.cid===CID)) sendHello(peer);
   else sendTo(peer,{t:'ack', ver:st.ver, h:stateHash(st)});
   saveOnline(); showOnline();
 }
-function onMsg(m, peer){
+async function onMsg(m, peer){
   if(!m || typeof m!=='object') return;
+  if(m.t==='hello' && typeof m.cid==='string' && !(await helloValid(m))) return;          // apresentação falsa
+  if(m.t==='state' && m.st && m.st.code===NET.code && !(await stateValid(m, peer))) return;    // estado sem assinatura válida
   if(m.t==='react'){ if(m.id && seenReacts.has(m.id)) return; seenReacts.add(m.id); if(seenReacts.size>200) seenReacts.clear(); showReaction(m.e, String(m.by||'').slice(0,20)); return; }
   if(m.t==='hello' && typeof m.cid==='string'){
     NET.peers[peer]=m.cid;
@@ -417,10 +507,10 @@ function onMsg(m, peer){
     if(NET.role==='host'){
       if(NET.st.ownerCid===CID){                           // sou o dono: continuo anfitrião, mas aproveito o progresso
         if((m.st.ver||0)>(NET.st.ver||0)){ NET.st=Object.assign(m.st,{hostCid:CID}); hostCommit(); }
-        else sendTo(peer,{t:'state', st:NET.st, force:true});
+        else sendState(peer, true);
         return;
       }
-      if(!(m.st.hostCid===m.st.ownerCid || newerState(m.st, NET.st))){ sendTo(peer,{t:'state', st:NET.st}); return; }
+      if(!(m.st.hostCid===m.st.ownerCid || newerState(m.st, NET.st))){ sendState(peer); return; }
       NET.role='guest'; NET.acks={};                       // o dono reassumiu: vira jogador
     }
     if(NET.role!=='guest') return;
@@ -435,8 +525,8 @@ function onMsg(m, peer){
   }
   if(isHostNow()){
     const cid=NET.peers[peer];
-    if(m.t==='pull'){ sendTo(peer,{t:'state', st:NET.st, force:true}); return; }
-    if(m.t==='ack'){ if(cid) NET.acks[cid]={ver:m.ver, h:m.h, at:Date.now()}; if(m.h!==stateHash(NET.st) && m.ver===NET.st.ver) sendTo(peer,{t:'state', st:NET.st, force:true}); return; }
+    if(m.t==='pull'){ sendState(peer, true); return; }
+    if(m.t==='ack'){ if(cid) NET.acks[cid]={ver:m.ver, h:m.h, at:Date.now()}; if(m.h!==stateHash(NET.st) && m.ver===NET.st.ver) sendState(peer, true); return; }
     const pl=NET.st.players.find(p=>p.cid===cid);
     if(!pl) return;
     if(m.t==='name'){ pl.name=String(m.name||'').trim().slice(0,20); hostCommit(); }
@@ -463,18 +553,20 @@ function syncTick(){
   st.players.forEach(p=>{
     if(p.cid===CID || !alive.has(p.cid)) return;
     const a=NET.acks[p.cid];
-    if(!a || a.ver!==st.ver || a.h!==h) sendToCid(p.cid,{t:'state', st, force:true});
+    if(!a || a.ver!==st.ver || a.h!==h){ if(NET.sigVer===st.ver || !KEYS.ok) sendToCid(p.cid, stateMsg(true)); }
   });
 }
 function hostHello(m, peer){
   const st=NET.st;
   if((st.banned||[]).includes(m.cid)){ sendTo(peer,{t:'kicked'}); return; }
-  if(m.spectator){ sendTo(peer,{t:'state', st}); return; }       // telão: só assiste
+  if(m.spectator){ sendState(peer); return; }       // telão: só assiste
   let pl=st.players.find(p=>p.cid===m.cid);
+  if(pl && pl.pk && m.pk && !samePk(pl.pk, m.pk)) return;   // alguém tentando usar o lugar de outra pessoa
   if(!pl){
     if(st.players.length>=10){ sendTo(peer,{t:'full'}); return; }
     pl={seat:st.players.length+1, cid:m.cid, name:'', on:true}; st.players.push(pl);
   }
+  if(!pl.pk && m.pk) pl.pk={x:m.pk.x, y:m.pk.y};
   pl.on=true;
   if(typeof m.name==='string' && m.name.trim()) pl.name=m.name.trim().slice(0,20);
   hostCommit();
@@ -604,7 +696,8 @@ function resolveVote(st, by){
 const nextThemePos=st=>Math.max(st.themePos, st.themeFloor||0)+1;
 function hostCommit(){
   NET.st.ver=(NET.st.ver||0)+1;
-  saveOnline(); broadcast({t:'state', st:NET.st}); showOnline();
+  saveOnline(); showOnline();
+  refreshSig().then(ok=>{ if(ok || !KEYS.ok) broadcast(stateMsg()); });
 }
 function sendAct(t, extra){
   const a=Object.assign({t, game:S.game, round:S.round, themePos:S.themePos}, extra||{});
@@ -624,13 +717,18 @@ function startHost(room, saved){
     players:[{seat:1, cid:CID, name:myName, on:true}], banned:[], phase:'lobby',
     game:1, round:1, results:[], themePos:0, table:[], roundOver:false, custom:null, history:[], ev:null, hints:{}, log:[], vote:null };
   NET.st.ownerCid=NET.st.ownerCid||CID;
+  if(!NET.st.ownerPk && KEYS.ok) NET.st.ownerPk=KEYS.pk;
+  { const me=NET.st.players.find(p=>p.cid===CID); if(me && KEYS.ok && !me.pk) me.pk=KEYS.pk; }
+  NET.ownerFp=KEYS.fp; NET.pinOwnerPk=NET.st.ownerPk||null;
+  refreshSig();
   if(!saved){ NET.st.players.forEach(p=>p.on=p.cid===CID); const me=NET.st.players.find(p=>p.cid===CID); if(me && myName) me.name=myName; }
   history.replaceState(null,'',roomHash(NET.st.code));
   saveOnline(); connect(NET.st.code);
 }
 function startGuest(room, saved, spectator){
   netReset(); NET.role='guest'; NET.spectator=!!spectator; lastEv=''; P=room;
-  if(saved) NET.st=saved;                  // última versão conhecida (ajuda se o anfitrião não voltar)
+  NET.pinFp=room.fp||null; NET.ownerFp=room.fp||'';
+  if(saved){ NET.st=saved; if(saved.ownerPk) NET.pinOwnerPk=saved.ownerPk; }                  // última versão conhecida (ajuda se o anfitrião não voltar)
   history.replaceState(null,'',roomHash(room.code));
   saveOnline(); connect(room.code);
   if(saved) hostLost();
@@ -1508,7 +1606,8 @@ if('serviceWorker' in navigator){
 }
 
 /* ---------- Início ---------- */
-(function start(){
+(async function start(){
+  await initKeys();
   if(location.search) history.replaceState(null,'',location.pathname+location.hash);
   const h=parseHash(location.hash), online=ls.get(ONLINE_KEY,null);
   if(h && online && online.code===h.code){ online.role==='host'?startHost(h,online.st):startGuest(h,online.st,online.role==='tv'); }
