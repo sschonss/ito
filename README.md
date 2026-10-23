@@ -45,7 +45,7 @@ Quem cria a sala escolhe as categorias; a escolha vai no código da sala (cabem 
 
 - Os celulares se conectam direto entre si (WebRTC) usando [Trystero](https://github.com/dmotz/trystero), por **duas redes ao mesmo tempo** (Nostr e MQTT). Se uma falhar, a outra segura.
 - A biblioteca vem do jsDelivr (com esm.sh de reserva) e fica guardada no celular depois da primeira vez.
-- Para quem está no 4G/5G, um servidor **TURN** ajuda muito. Passo a passo (10 minutos, grátis): [`docs/turn.md`](docs/turn.md).
+- Para quem está no 4G/5G ou numa VPN, o app pede credenciais **TURN** de curta duração a um Worker da Cloudflare. Se isso falhar, usa a lista fixa de `config.js` (vazia por padrão) ou segue sem TURN. Detalhes: [`docs/turn.md`](docs/turn.md).
 - Cada celular cria uma chave própria. O anfitrião **assina** cada atualização da partida e os outros só aceitam o que vier assinado pela chave certa; o convite leva a impressão digital da chave do dono da sala. Ninguém consegue se passar pelo anfitrião ou entrar no lugar de outro jogador.
 
 ## PWA
@@ -77,7 +77,7 @@ Uma vez por dia (e pelo botão **Run workflow**) roda também o teste de **conex
 | `styles.css` | Visual (tema claro e escuro) |
 | `js/` | Lógica do jogo, em partes carregadas nesta ordem: `themes` (temas e ícones), `core` (estado, sorteio, código da sala, componentes), `home`, `crypto` (chaves e assinaturas), `net` (conexão e sincronia), `rules` (regras do anfitrião), `screens`, `effects` (sons, votação, destaques), `ruler` (régua e telão), `actions` (menu e botões), `pass` (celular só), `boot` (início) |
 | `sw.js` | Service worker (cache offline) |
-| `config.js` | Servidor TURN opcional |
+| `config.js` | Endereço das credenciais TURN e lista fixa opcional |
 | `lib/qrcodegen.js` | Gerador de QR code (Project Nayuki, MIT) |
 | `manifest.webmanifest` | Dados do app instalável |
 | `icons/`, `fonts/` | Ícones e fonte Inter |

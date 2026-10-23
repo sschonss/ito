@@ -1,6 +1,6 @@
 /* ito — service worker
  * Ao publicar uma nova versão, aumente VERSION aqui e em js/core.js. */
-const VERSION = '2.0.0';
+const VERSION = '2.0.1';
 const LIB_CACHE = 'ito-lib-1';
 const LIB_HOSTS = ['cdn.jsdelivr.net', 'esm.sh'];
 const CACHE = 'ito-' + VERSION;
@@ -33,6 +33,12 @@ self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
+
+  // Credenciais TURN duram 24 h: sempre na rede, nunca no cache.
+  if (url.hostname === 'ito-turn.sschonss.workers.dev') {
+    e.respondWith(fetch(req, { cache: 'no-store' }));
+    return;
+  }
 
   // Biblioteca de conexão (CDN): guarda uma cópia para não depender do CDN toda vez.
   if (LIB_HOSTS.includes(url.hostname)) {

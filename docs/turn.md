@@ -1,8 +1,6 @@
-# Ligar o servidor TURN (para quem joga no 4G/5G)
+# Servidor TURN (4G, 5G e VPN)
 
-Na maioria das vezes os celulares se conectam direto, sem ajuda. Algumas operadoras de celular bloqueiam essa conexão direta, e aí a pessoa fica presa em "Entrando na sala…". Um **servidor TURN** resolve: ele só repassa os dados entre os celulares (que continuam criptografados de ponta a ponta, o servidor não consegue ler as jogadas).
-
-Leva uns 10 minutos e dá para fazer tudo pelo navegador, sem instalar nada.
+Na maioria das vezes os celulares se conectam direto, sem ajuda. Algumas operadoras, VPNs e redes de celular bloqueiam essa conexão direta, e aí a pessoa fica presa em "Entrando na sala…". Um **servidor TURN** resolve: ele só repassa os dados entre os celulares (que continuam criptografados de ponta a ponta, o servidor não consegue ler as jogadas).
 
 ```mermaid
 flowchart LR
@@ -11,21 +9,26 @@ flowchart LR
   A -- "pelo TURN" --> T["🛰️ Servidor TURN"] --> C
 ```
 
-## 1. Criar a conta grátis
+## No app publicado
 
-1. Abra <https://www.metered.ca/stun-turn> e crie uma conta (o plano gratuito basta para jogos entre amigos; ele tem um limite mensal de tráfego, e o ito usa muito pouco porque só manda textos curtos).
-2. No painel, crie um app (qualquer nome, por exemplo `ito`).
-3. Abra **TURN Server → Credentials** e clique em **Add Credential**. Dê um nome (`ito`) e, se quiser, um limite de uso.
-4. Clique em **Instructions** ao lado da credencial. Aparece uma lista `iceServers` com vários endereços, um `username` e um `credential`.
+O site em <https://sschonss.github.io/ito/> já pede credenciais ao Worker `https://ito-turn.sschonss.workers.dev` (Cloudflare Realtime TURN). Elas duram 24 horas. O app guarda a resposta no celular até uns 5 minutos antes de vencer, para não pedir de novo a cada reconexão. Se o pedido falhar, demorar mais que uns 3 segundos ou vier quebrado, a sala abre do mesmo jeito: usa a lista `turn` de [`config.js`](../config.js), se houver, ou segue só com a conexão direta.
 
-## 2. Colar no app
+A chave secreta do TURN fica só no Worker. Ela não está neste repositório. O Worker só responde para `https://sschonss.github.io` e para `localhost` / `127.0.0.1`.
 
-1. No GitHub, abra o repositório e o arquivo [`config.js`](../config.js).
-2. Clique no lápis (**Edit this file**).
-3. Troque `turn: []` pela lista que a Metered mostrou. Use **só as linhas que começam com `turn:` ou `turns:`** (as de `stun:` não precisam):
+Para conferir: abra o app no Wi-Fi e no 4G ou numa VPN, entre na mesma sala e jogue uma rodada. Se aparecer "Nova versão disponível", toque para atualizar (ou use **Menu → Atualizar app**).
+
+## Usar outro TURN (Metered)
+
+Quem for publicar uma cópia própria, ou não quiser o Worker, pode usar um serviço com usuário e senha fixos. O plano grátis da Metered basta para jogos entre amigos (o ito só manda textos curtos).
+
+1. Abra <https://www.metered.ca/stun-turn>, crie uma conta e um app (por exemplo `ito`).
+2. Em **TURN Server → Credentials**, clique em **Add Credential**. Se quiser, ponha um limite de uso.
+3. Em **Instructions**, copie os endereços que começam com `turn:` ou `turns:` (os de `stun:` não precisam).
+4. Em [`config.js`](../config.js), deixe `turnUrl: ''` e preencha `turn`:
 
 ```js
 window.ITO_CONFIG = {
+  turnUrl: '',
   turn: [
     { urls: 'turn:global.relay.metered.ca:80',                username: 'SEU_USUARIO', credential: 'SUA_SENHA' },
     { urls: 'turn:global.relay.metered.ca:80?transport=tcp',  username: 'SEU_USUARIO', credential: 'SUA_SENHA' },
@@ -35,17 +38,12 @@ window.ITO_CONFIG = {
 };
 ```
 
-4. Abra também [`sw.js`](../sw.js) e [`js/core.js`](../js/core.js) e aumente o número de `VERSION` nos dois (por exemplo de `2.0.0` para `2.0.1`). Assim os celulares percebem que tem versão nova.
-5. Clique em **Commit changes**. Em um ou dois minutos o GitHub Pages publica.
+5. Aumente `VERSION` em [`sw.js`](../sw.js) e [`js/core.js`](../js/core.js) (por exemplo de `2.0.1` para `2.0.2`) e publique.
 
-## 3. Conferir
-
-1. No celular, abra o app. Deve aparecer "Nova versão disponível"; toque para atualizar (ou use **Menu → Atualizar app**).
-2. Teste com uma pessoa no Wi-Fi e outra no 4G.
-3. No painel da Metered, em **Usage**, aparece o tráfego depois da partida.
+Se `turnUrl` e `turn` estiverem os dois preenchidos, o app usa os dois: primeiro as credenciais do Worker, depois a lista fixa.
 
 ## Bom saber
 
-- **A senha fica visível no site.** Como o app não tem servidor, qualquer pessoa que abrir o código da página consegue ver o usuário e a senha do TURN. O pior que pode acontecer é alguém gastar o seu limite grátis. Por isso vale colocar um limite na credencial (passo 1.3) e, se perceber uso estranho, apagar a credencial e criar outra.
-- **Funciona sem TURN também.** Se a lista ficar vazia, o app segue usando só a conexão direta.
-- **Outros serviços** que entregam usuário e senha fixos funcionam do mesmo jeito: é só colar os endereços `turn:`/`turns:` no mesmo formato.
+- **A senha fixa fica visível no site.** Quem cola usuário e senha em `config.js` deixa isso no código da página. O pior que pode acontecer é alguém gastar o limite grátis. Por isso vale limitar a credencial e, se o uso parecer estranho, trocar a senha. As credenciais do Worker não têm esse problema: duram um dia e a chave não vai para o site.
+- **Funciona sem TURN também.** Com `turnUrl` vazio e `turn` vazio, o app segue só na conexão direta.
+- **Outros serviços** com usuário e senha fixos entram no mesmo formato, em `turn`.

@@ -13,6 +13,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 FAKE = open(os.path.join(os.path.dirname(__file__), 'fake_p2p.mjs')).read()
 ARTIFACTS = os.path.join(os.path.dirname(__file__), 'artifacts')
 CDN = re.compile(r'https://(cdn\.jsdelivr\.net|esm\.sh)/.*')
+TURN = re.compile(r'https://ito-turn\.sschonss\.workers\.dev/?')
 PHONE = {'width': 390, 'height': 844}
 TV = {'width': 1280, 'height': 720}
 
@@ -148,8 +149,13 @@ class E2E(unittest.IsolatedAsyncioTestCase):
         self.relay = Relay()
         self.errors = []
         self.phones = []
+        self.turn_servers = None   # lista iceServers falsa; None com turn_status padrão aborta
+        self.turn_status = None    # None aborta; 200 entrega; 500, 'bad' ou 'slow' simulam falha
+        self.turn_hits = 0
+        self.turn_release = asyncio.Event()
 
     async def asyncTearDown(self):
+        self.turn_release.set()
         out = os.path.join(ARTIFACTS, self.id().split('.')[-1])
         os.makedirs(out, exist_ok=True)
         for p in self.phones:
@@ -158,10 +164,37 @@ class E2E(unittest.IsolatedAsyncioTestCase):
         await self.browser.close(); await self.pw.stop()
         self.assertEqual(self.errors, [], 'erros de JavaScript na página')
 
+    async def _turn_route(self, route):
+        """O app não pode falar com o Worker de verdade durante os testes."""
+        self.turn_hits += 1
+        status = self.turn_status
+        if status is None:
+            await route.abort()
+            return
+        if status == 'slow':
+            try:
+                await asyncio.wait_for(self.turn_release.wait(), 20)
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await route.fulfill(status=200, content_type='application/json', body='{"iceServers":[]}',
+                                    headers={'cache-control': 'no-store'})
+            except Exception:
+                pass
+            return
+        if status == 'bad':
+            await route.fulfill(status=200, content_type='application/json', body='{',
+                                headers={'cache-control': 'no-store'})
+            return
+        body = json.dumps({'iceServers': self.turn_servers or []})
+        await route.fulfill(status=status, content_type='application/json', body=body,
+                            headers={'cache-control': 'no-store'})
+
     async def phone(self, name, scheme='light', viewport=None, block_cdn=False, real=False, only=None):
         """real=True usa a biblioteca e as redes de verdade (internet); only='n' ou 'm' deixa só uma das redes."""
         ctx = await self.browser.new_context(viewport=viewport or PHONE, color_scheme=scheme, service_workers='block')
         await ctx.expose_binding('__relay', self.relay.handle)
+        await ctx.route(TURN, self._turn_route)
         if real:
             if only:
                 other = 'mqtt' if only == 'n' else 'nostr'
