@@ -20,6 +20,7 @@ Capturas de tela de cada teste ficam em `tests/e2e/artifacts/`.
 | `test_basics.py` | Tela inicial, arquivos do PWA, versões iguais em `js/core.js`/`sw.js`, código da sala, regra de "fora do lugar", mesmas cartas em todos os celulares |
 | `test_offline.py` | Sem internet → aviso e Tentar de novo (não existe modo sem conexão) |
 | `test_online_game.py` | Lobby (nomes, ordem, remover jogador), partida completa (votação, dicas, ordem combinada, revelação certa e errada, um por um, fim de jogo, resumo, jogar de novo), toques simultâneos, reações sem duplicar, tema da turma, telão, votação (empate, cancelar), só o anfitrião comanda |
+| `test_chat.py` | Conversa: chega nos outros com o nome de quem enviou (sem duplicar nem se passar por outra pessoa), histórico ao reconectar ou entrar depois, número bloqueado na rodada, texto sem HTML, expulso não fala mais |
 | `test_pass.py` | Num celular só, sem internet: distribuir com tela escondida, dicas, ordem, revelar certo/errado, fim, jogar de novo, continuar após fechar, ver a carta de novo, mudar tema |
 | `test_security.py` | Link leva a impressão da chave do dono; estado falso (assinado por outro jogador, sem assinatura ou trocando a chave do dono) é ignorado; ninguém entra no lugar de outro jogador |
 | `test_a11y.py` | Régua descrita para leitor de tela, rótulo da carta, opção de letra maior salva |

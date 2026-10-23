@@ -25,7 +25,8 @@ const SFX={
   bad:()=>tone([[196,0,.28,'sawtooth',.09],[155,.13,.32,'sawtooth',.09]]),
   good:()=>tone([[523,0,.14],[659,.1,.14],[784,.2,.3]]),
   win:()=>tone([[523,0,.14],[659,.12,.14],[784,.24,.14],[1047,.36,.5]]),
-  pop:()=>tone([[880,0,.05,'sine',.06]])
+  pop:()=>tone([[880,0,.05,'sine',.06]]),
+  chat:()=>tone([[740,0,.04,'sine',.035],[988,.045,.055,'sine',.02]])
 };
 function confetti(){
   if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;

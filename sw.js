@@ -1,12 +1,12 @@
 /* ito — service worker
  * Ao publicar uma nova versão, aumente VERSION aqui e em js/core.js. */
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const LIB_CACHE = 'ito-lib-1';
 const LIB_HOSTS = ['cdn.jsdelivr.net', 'esm.sh'];
 const CACHE = 'ito-' + VERSION;
 const ASSETS = [
   './', 'index.html', 'styles.css', 'config.js',
-  'js/themes.js', 'js/core.js', 'js/home.js', 'js/crypto.js', 'js/net.js', 'js/rules.js', 'js/screens.js', 'js/effects.js', 'js/ruler.js', 'js/actions.js', 'js/pass.js', 'js/boot.js',
+  'js/themes.js', 'js/core.js', 'js/home.js', 'js/crypto.js', 'js/net.js', 'js/rules.js', 'js/screens.js', 'js/effects.js', 'js/ruler.js', 'js/actions.js', 'js/chat.js', 'js/pass.js', 'js/boot.js',
   'lib/qrcodegen.js', 'manifest.webmanifest',
   'fonts/inter-400.woff', 'fonts/inter-600.woff', 'fonts/inter-display-800.woff',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',

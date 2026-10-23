@@ -150,7 +150,8 @@ const act={
       <p><b>Ordem da turma:</b> combinem quem baixa primeiro e arrumem a lista. Quando todos concordarem, o anfitrião toca em <b>Revelar nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
       <p><b>Dica:</b> escreva a palavra que você falou. Ela aparece na mesa para todos.</p>
       <p><b>Tema:</b> antes de alguém baixar, dá para trocar, votar entre dois temas ou escrever um tema da turma.</p>
-      <p><b>Telão:</b> uma TV ou notebook pode entrar como mesa, mostrando tudo em tamanho grande.</p>
+      <p><b>Conversa:</b> o botão no topo abre o chat da sala, no lobby e durante a partida. Dá para combinar a ordem por ali. Na rodada, mensagem com número de 1 a 100 não sai.</p>
+      <p><b>Telão:</b> uma TV ou notebook pode entrar como mesa, mostrando tudo em tamanho grande. A última mensagem da conversa aparece rapidinho.</p>
       <p><b>No final</b> aparece o placar da partida e, se jogarem várias, o placar da noite.</p>`,
       actions:[{label:'Entendi',value:'ok',cls:'brand'}]});
   },

@@ -180,6 +180,7 @@ function showOnline(){
     lastEv=st.ev.id;
   }
   if(NET.spectator) tv(); else if(st.phase==='lobby') lobby(); else game();
+  chatOnScreen();
 }
 function announce(st){
   const ev=st.ev, mine=ev.cid===CID;

@@ -9,7 +9,7 @@ function catChips(){
 }
 function home(keep){
   const typed=keep && $('#code') ? $('#code').value : '';
-  S=null; P=null; setMeta(''); document.body.classList.remove('tv');
+  S=null; P=null; setMeta(''); document.body.classList.remove('tv'); chatOnScreen();
   ls.del('ito-game-v2');   // dados do antigo modo sem conexão
   const online=ls.get(ONLINE_KEY,null), pass=ls.get(PASS_KEY,null);
   const resume= pass && pass.mode==='pass' && !online ? `<button class="resume" data-act="passResume"><span class="dot"></span>
