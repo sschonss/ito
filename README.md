@@ -15,9 +15,9 @@ Há dois jeitos de jogar:
 
 - Quem cria a sala é o **anfitrião**: escolhe jogadores, rodadas e categorias, e manda o convite (link, QR code ou código de 8 letras).
 - Cada pessoa coloca o próprio nome, se quiser. O anfitrião pode mudar a ordem ou tirar alguém da sala.
-- A cada rodada cada um recebe uma carta de 1 a 100. Quando achar que é a sua vez, toca em **Baixar minha carta**. O app mostra a mesa para todos e avisa quando uma carta sai **fora da ordem**.
-- **Ordem da turma:** a turma arruma no app quem baixa primeiro, segundo, terceiro… e o anfitrião toca em **Revelar nessa ordem**. O app vira as cartas em sequência e confere sozinho (ninguém digita número, então não tem como errar ou mentir).
-- **Régua da revelação:** no fim da rodada as cartas aparecem numa linha de 1 a 100, com nome, dica e ordem de cada um.
+- A cada rodada cada um recebe uma carta de 1 a 100. Quando achar que é a sua vez, toca em **Baixar minha carta**. As cartas vão para a mesa do **maior para o menor**. O app mostra a mesa para todos e avisa quando uma carta sai **fora da ordem**.
+- **Ordem da turma:** a turma arruma a ordem numa barra do tema, de cima para baixo. Em cima fica o extremo do 100 (por exemplo, “lotado”) e embaixo o do 1 (“vazio”). O anfitrião toca em **Revelar nessa ordem**. O app vira as cartas nessa sequência e confere sozinho (ninguém digita número, então não tem como errar ou mentir).
+- **Régua da revelação:** no fim da rodada as cartas aparecem numa linha de 1 a 100, com nome, dica e a vez de cada um. Quem estava no alto da barra jogou primeiro.
 - **Dica escrita:** cada um escreve a palavra que falou; ela aparece na mesa ao lado da carta.
 - Antes de alguém baixar, dá para **trocar o tema**, **votar entre dois temas** ou **escrever um tema da turma**.
 - **Reações** com emoji aparecem na tela de todos.

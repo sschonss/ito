@@ -216,6 +216,7 @@ sequenceDiagram
   phase: 'lobby' | 'play' | 'done',
   game, round, results, themePos, // andamento
   table: [{seat, card, ok}],      // cartas na mesa, na ordem em que foram reveladas
+  orderDir,                       // 'desc' = maior primeiro; ausente = sala antiga, menor primeiro
   plan, hints, vote, custom,      // ordem combinada, dicas, votação, tema da turma
   log, history, ev                // registro das rodadas, placar da noite, último evento
 }
@@ -333,7 +334,9 @@ if (a.t === 'next' && fresh && st.roundOver) { ... }   // o 2º "próxima rodada
 
 ### Quem está fora do lugar
 
-Quando a rodada termina, o anfitrião marca como erradas **só as cartas fora do lugar**: mantém a maior sequência crescente e marca o resto (`markOutOfPlace()`).
+Quando a rodada termina, o anfitrião marca como erradas **só as cartas fora do lugar**: mantém a maior sequência decrescente (do maior para o menor) e marca o resto (`markOutOfPlace()`). Em empate de tamanho, fica a sequência com as cartas maiores — marca quem baixou cedo demais, enquanto alguém ainda tinha carta maior. **Baixar minha carta** usa a mesma regra.
+
+Salas criadas nesta versão levam `orderDir: 'desc'` no estado. Uma sala antiga, já em andamento, não tem esse campo: o anfitrião (mesmo numa versão nova) continua conferindo em ordem crescente até a partida acabar, e a barra na tela acompanha. O `plan` segue sendo só a lista de lugares, de cima para baixo. Quem manda a regra é o anfitrião; o aviso “Nova versão disponível” é o que pede para atualizar o app.
 
 ## 7. Presença e troca de anfitrião
 

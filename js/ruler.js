@@ -26,7 +26,7 @@ function ruler(entries, o){
         </div>`).join('')}
     </div>
     ${o.high?`<p class="r-cap">100 = ${esc(o.high)}</p>`:''}
-    ${items.some(it=>it.order)?'<p class="r-legend">As cartas estão pelo número. O 1º, 2º, 3º é a ordem que a turma montou.</p>':''}
+    ${items.some(it=>it.order)?`<p class="r-legend">${descending(S)?'A régua vai do 1 ao 100. Quem estava no alto da barra jogou primeiro.':'As cartas estão pelo número. O 1º, 2º, 3º é a ordem que a turma montou.'}</p>`:''}
   </div>`;
 }
 function logRuler(entry, o){
@@ -84,7 +84,7 @@ function tv(){
       ${S.roundOver?`<h3>Como ficou</h3>${roundRuler({gap:54, min:Math.max(320, Math.min(520, innerHeight-300)), ax:70})}`:`<h3>Na mesa</h3>`}
       ${S.roundOver?'':S.table.length?`<ol class="pile big ${anim?'reveal-anim':''}">${S.table.map((t,i)=>`<li class="${t.ok?'':'bad'} ${i>=revealFrom?'new':''}" style="--i:${Math.max(0,i-revealFrom)}"><strong>${t.card}</strong><span>${esc(nameOf(t.seat))}</span>${hintOf(t.seat)?`<i>“${esc(hintOf(t.seat))}”</i>`:''}${t.ok?'':'<em>fora do lugar</em>'}</li>`).join('')}
         </ol>`:'<p class="empty">Nenhuma carta na mesa ainda.</p>'}
-      ${pending.length&&!S.roundOver?`<h3>Ordem da turma</h3><ol class="order-list tv">${pending.map((s,i)=>`<li><span class="pos">${S.table.length+i+1}º</span><span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">pensando…</i>'}</span></li>`).join('')}</ol>`:''}
+      ${pending.length&&!S.roundOver?`<h3>Ordem da turma</h3>${orderScale(pending.map(s=>`<li><span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:'<i class="none">pensando…</i>'}</span></li>`).join(''),'tv')}`:''}
     </section>
   </div>`, false, true);
 }
