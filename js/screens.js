@@ -107,10 +107,11 @@ function game(){
   const pending=planOrder(), hintOf=s=>S.hints[s]||'';
   const roundOk=S.roundOver && S.table.every(t=>t.ok);
   const anim=Date.now()<revealAnimUntil;
+  const desc=descending(S);
   const tips=!ls.get('ito-tips',false) ? `<section class="panel tips">
     <p class="eyebrow">Como funciona</p>
     <ol><li><b>Toque na carta</b> para ver seu número.</li><li>Fale uma <b>dica</b> sobre o tema, sem dizer o número.</li>
-    <li>Arrumem a <b>ordem da turma</b>: quem tem o menor número vai primeiro.</li><li>Quando todos concordarem, ${amHost?'<b>você</b> (anfitrião) revela':`<b>${hn}</b> (anfitrião) revela`} as cartas.</li></ol>
+    <li>Arrumem a <b>ordem da turma</b> na barra: em cima o extremo ${desc?'maior':'menor'} do tema, embaixo o ${desc?'menor':'maior'}.</li><li>Quando todos concordarem, ${amHost?'<b>você</b> (anfitrião) revela':`<b>${hn}</b> (anfitrião) revela`} as cartas.</li></ol>
     <button class="btn soft" data-act="tipsOk">Entendi</button></section>` : '';
   const hintRow=!iPlayed && !S.roundOver ? `<div class="hint-row"><input id="myHint" maxlength="30" placeholder="Sua dica (opcional)" value="${esc(drafts.hint&&drafts.hint.k===key?drafts.hint.v:hintOf(S.seat))}" autocomplete="off" enterkeyhint="send">
     <button data-act="saveHint">${hintOf(S.seat)?'Trocar':'Enviar'}</button></div>` : '';
@@ -120,13 +121,12 @@ function game(){
   </section>` : '';
   const order=!S.roundOver && pending.length ? `<section class="panel order">
     <div class="row-between"><h2>Ordem da turma</h2><span class="count">${pending.length} na mão</span></div>
-    <p class="lead">Quem tem o menor número vai primeiro. Qualquer um pode mexer; quando todos concordarem, ${amHost?'você revela':`${hn} revela`}.</p>
-    <ol class="order-list">${pending.map((s,i)=>`<li class="${s===S.seat?'me':''}">
-      <span class="pos">${S.table.length+i+1}º</span>
+    <p class="lead">Arrumem de cima para baixo. Qualquer um pode mexer; quando todos concordarem, ${amHost?'você revela':`${hn} revela`}.</p>
+    ${orderScale(pending.map((s,i)=>`<li class="${s===S.seat?'me':''}">
       <span class="who"><b>${esc(nameOf(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:''}</span>
       <button class="row-btn" data-act="planMove" data-s="${s}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">${svgStroke(I.up)}</button>
       <button class="row-btn" data-act="planMove" data-s="${s}" data-d="1" ${i===pending.length-1?'disabled':''} aria-label="Descer">${svgStroke(I.down)}</button>
-    </li>`).join('')}</ol>
+    </li>`).join(''))}
     ${!iPlayed?`<button class="link-btn solo" data-act="playCard">Prefere ir um por um? Baixar só a minha carta agora</button>`:''}
   </section>` : '';
   const result=S.roundOver ? `<section class="panel reveal-panel">

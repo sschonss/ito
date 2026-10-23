@@ -96,13 +96,12 @@ function passTable(){
   render(`${statusTop(score)}${themeBox(true)}
   <section class="panel order">
     <div class="row-between"><h2>Ordem da turma</h2><span class="count">${S.n} jogadores</span></div>
-    <p class="lead">Falem as dicas e arrumem: quem tem o menor número vai primeiro.</p>
-    <ol class="order-list">${order.map((s,i)=>`<li>
-      <span class="pos">${i+1}º</span>
+    <p class="lead">Falem as dicas e arrumem de cima para baixo.</p>
+    ${orderScale(order.map((s,i)=>`<li>
       <span class="who"><b>${esc(passName(s))}</b>${hintOf(s)?`<i>“${esc(hintOf(s))}”</i>`:''}</span>
       <button class="row-btn" data-act="passMove" data-s="${s}" data-d="-1" ${i===0?'disabled':''} aria-label="Subir">${svgStroke(I.up)}</button>
       <button class="row-btn" data-act="passMove" data-s="${s}" data-d="1" ${i===order.length-1?'disabled':''} aria-label="Descer">${svgStroke(I.down)}</button>
-    </li>`).join('')}</ol>
+    </li>`).join(''))}
     <button class="link-btn solo" data-act="passPeekAgain">Esqueceu o número? Ver minha carta de novo</button>
   </section>
   <div class="dock"><div class="dock-inner"><button class="btn brand" data-act="passReveal">${svgStroke(I.eye)}Revelar nessa ordem</button></div></div>`, true, true);
@@ -156,7 +155,7 @@ Object.assign(act,{
     const v=new Uint32Array(4); crypto.getRandomValues(v);
     netReset(); ls.del(ONLINE_KEY);
     S={ mode:'pass', code:[...v].map(x=>L24[x%24]).join('')+'-'+enc(Math.max(2,names.length),draft.rounds,draft.mask), rounds:draft.rounds, mask:draft.mask,
-        names, n:names.length, seat:0, game:1, round:1, results:[], themePos:0, themeFloor:0, history:[], log:[], status:'play' };
+        names, n:names.length, seat:0, game:1, round:1, results:[], themePos:0, themeFloor:0, history:[], log:[], status:'play', orderDir:'desc' };
     passNewRound(); savePass(); history.replaceState(null,'',location.pathname); passRender();
   },
   passShow(){ S.showing=true; savePass(); passDeal(); vibrate(20); },
@@ -196,7 +195,7 @@ Object.assign(act,{
   },
   async passReveal(){
     const o=passOrder();
-    if(!await confirmBox('Todos concordam com a ordem?', `<ol class="confirm-order">${o.map(s=>`<li>${esc(passName(s))}${(S.hints||{})[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join('')}</ol>As cartas vão virar nessa sequência.`, 'Revelar')) return;
+    if(!await confirmBox('Todos concordam com a ordem?', `${orderScale(o.map(s=>`<li>${esc(passName(s))}${(S.hints||{})[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join(''),'confirm')}<p>As cartas vão virar de cima para baixo.</p>`, 'Revelar')) return;
     const d=deck();
     S.table=o.map(seat=>({seat, card:d[seat-1], ok:true}));
     finishRound(S, o);
@@ -216,7 +215,7 @@ Object.assign(act,{
     } else { S.round++; S.themePos=nextThemePos(S); passNewRound(); }
     savePass(); passRender(); window.scrollTo({top:0});
   },
-  passRestart(){ S.game++; S.round=1; S.results=[]; S.status='play'; S.log=[]; S.themePos=nextThemePos(S); passNewRound(); savePass(); passRender(); },
+  passRestart(){ S.orderDir='desc'; S.game++; S.round=1; S.results=[]; S.status='play'; S.log=[]; S.themePos=nextThemePos(S); passNewRound(); savePass(); passRender(); },
   async passQuit(){
     if(S && S.mode==='pass' && S.phase!=='done' && !await confirmBox('Sair da partida?','O progresso desta partida será apagado.','Sair')) return;
     ls.del(PASS_KEY); S=null; history.replaceState(null,'',location.pathname); home();
