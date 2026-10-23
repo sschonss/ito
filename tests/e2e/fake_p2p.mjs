@@ -2,6 +2,7 @@
 const KIND='__KIND__';
 export const selfId = KIND+Math.random().toString(36).slice(2,8);
 export function joinRoom(cfg, roomId){
+  (window.__joinCfg=window.__joinCfg||[]).push(cfg);
   const room={onPeerJoin:null,onPeerLeave:null}, actions={};
   (window.__deliverers=window.__deliverers||{})[KIND]=(type,from,name,data)=>{
     if(type==='join') room.onPeerJoin&&room.onPeerJoin(from);

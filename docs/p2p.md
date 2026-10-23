@@ -15,7 +15,7 @@ O ito roda só com o **GitHub Pages**, que serve arquivos estáticos (HTML, CSS,
 | Trystero | Monta as conexões WebRTC e cuida da sinalização | carregado do jsDelivr (`@trystero-p2p/nostr` e `@trystero-p2p/mqtt`, v0.25.4) |
 | Relays Nostr e brokers MQTT públicos | "Quadro de avisos" onde os celulares trocam os dados para se conectar | serviços de terceiros, gratuitos |
 | STUN (Google, padrão do Trystero) | Ajuda cada celular a descobrir seu endereço público | serviço de terceiros |
-| TURN (opcional) | Retransmite o tráfego quando a conexão direta é bloqueada (comum no 4G/5G) | `config.js` |
+| TURN | Retransmite o tráfego quando a conexão direta é bloqueada (4G/5G, VPN). Por padrão o app pede credenciais de 24 h a um Worker da Cloudflare; a lista fixa em `config.js` continua valendo | `turnUrl` e `turn` em `config.js` |
 | Service worker | Guarda o app e a biblioteca no celular | `sw.js` |
 
 ### Camadas dentro do app
@@ -87,8 +87,8 @@ sequenceDiagram
   alt caminho direto funciona
     A->>B: data channel direto (DTLS, criptografado)
     B->>A: dados nos dois sentidos
-  else NAT bloqueia (comum no 4G/5G)
-    A->>B: via servidor TURN (se configurado em config.js)
+  else NAT bloqueia (comum no 4G/5G ou VPN)
+    A->>B: via TURN (credenciais do Worker, ou a lista turn em config.js)
   end
   Note over A,B: daqui em diante os relays não são mais usados
 ```
@@ -104,6 +104,8 @@ const P2P = {
   m: ['https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt@0.25.4/+esm',  'https://esm.sh/@trystero-p2p/mqtt@0.25.4']
 };
 const room = lib.joinRoom({ appId: APP_ID, password: code, turnConfig }, code);
+// turnConfig = iceServers do Worker (se a busca deu certo) + a lista turn de config.js.
+// turnConfig deixa o STUN padrão do Trystero no lugar.
 ```
 
 - Cada rede tem um endereço reserva (esm.sh) caso o jsDelivr falhe.
@@ -382,6 +384,7 @@ sequenceDiagram
 | `ito-online` | Sala atual, papel (`host`, `guest`, `tv`) e último estado, para reabrir o app e voltar à sala |
 | `ito-key` | Chave do celular (assinaturas) |
 | `ito-sound`, `ito-tips`, `ito-big` | Preferências (sons, dicas, letra maior) |
+| `ito-turn` | Credenciais TURN já pedidas, até perto de vencer (24 h, com folga de 5 min) |
 
 ## 9. Sem internet
 
@@ -404,14 +407,16 @@ flowchart TD
 - O `sw.js` guarda uma cópia (cache `ito-lib-1`) para não depender do CDN a cada abertura.
 - O app em si fica no cache `ito-<VERSION>`. **Menu → Atualizar app** apaga os caches e recarrega.
 
-## 11. TURN (opcional, recomendado para 4G/5G)
+## 11. TURN (4G/5G e VPN)
 
-Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retransmite os dados (que continuam criptografados de ponta a ponta). Para ativar, preencha `turn` em `config.js`. Passo a passo para quem não é técnico: [`turn.md`](turn.md). O app passa a lista para o Trystero via `turnConfig`.
+Algumas redes usam NAT que impede a conexão direta. Um servidor TURN retransmite os dados (que continuam criptografados de ponta a ponta).
+
+Por padrão o app pede `iceServers` em `CFG.turnUrl` (o Worker `https://ito-turn.sschonss.workers.dev`). A busca tem timeout de 3 segundos, não guarda a resposta no service worker (`Cache-Control: no-store`) e, no celular, reaproveita as credenciais até 5 minutos antes das 24 h. Se falhar, usa só a lista `CFG.turn`. As duas listas, quando existem, vão juntas para o Trystero em `turnConfig` (o STUN padrão da biblioteca continua). Passo a passo: [`turn.md`](turn.md).
 
 ## 12. Limitações conhecidas
 
 - **Precisa de internet** para a primeira conexão (sinalização). Depois de conectados, o tráfego é direto.
-- **Sem TURN**, alguns pares em redes móveis podem não conseguir se conectar.
+- **Se o Worker de TURN estiver fora**, o app entra na sala mesmo assim e volta ao comportamento antigo (lista `turn` ou só conexão direta). Alguns pares em redes móveis podem não se conectar nesse caso.
 - **Dependência de serviços públicos:** relays Nostr, brokers MQTT, STUN e CDN são de terceiros e podem ficar fora do ar. As duas redes e os endereços reserva reduzem o risco.
 - **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Quando a rede volta, prevalece o estado mais novo e o dono da sala reassume.
 - **Sem internet não tem jogo:** não existe modo sem conexão.
@@ -421,7 +426,7 @@ Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retra
 
 ## 13. Como é testado
 
-Os testes end-to-end (`tests/e2e`) trocam a biblioteca real por um **relé falso** (`fake_p2p.mjs`) que imita as duas redes dentro do próprio teste.
+Os testes end-to-end (`tests/e2e`) trocam a biblioteca real por um **relé falso** (`fake_p2p.mjs`) que imita as duas redes dentro do próprio teste. O pedido de credenciais TURN também é interceptado, então os testes não chamam o Worker.
 
 ```mermaid
 flowchart LR
