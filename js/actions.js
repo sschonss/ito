@@ -70,7 +70,7 @@ const act={
   async revealPlan(){
     const o=planOrder();
     if(!o.length) return;
-    if(!await confirmBox(o.length>1?'Todos concordam com a ordem?':'Revelar a última carta?', `<ol class="confirm-order">${o.map(s=>`<li>${esc(nameOf(s))}${S.hints[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join('')}</ol>Todas as cartas vão para a mesa nessa sequência.`, 'Revelar')) return;
+    if(!await confirmBox(o.length>1?'Todos concordam com a ordem?':'Revelar a última carta?', `${orderScale(o.map(s=>`<li>${esc(nameOf(s))}${S.hints[s]?` · “${esc(S.hints[s])}”`:''}</li>`).join(''),'confirm')}<p>As cartas vão virar de cima para baixo.</p>`, 'Revelar')) return;
     sendAct('reveal',{order:o});
   },
   toggleSound(){ soundOn=!soundOn; ls.set('ito-sound',soundOn); if(soundOn){ audio(); SFX.pop(); } toast(soundOn?'Sons ligados':'Sons desligados'); },
@@ -137,20 +137,21 @@ const act={
   skip(){ sendAct('skip'); },
   restart(){ sendAct('restart'); },
   rules(){
+    const desc=!S || descending(S);
     dialog({title:'Como jogar', body:`
       <ol>
         <li>A cada rodada, cada pessoa recebe <b>uma carta</b> secreta de <b>1 a 100</b>.</li>
         <li>Leiam o <b>tema</b>. Cada um descreve sua carta com algo do tema, sem dizer o número. Ex.: no tema “Comidas”, quem tem 95 pode dizer “pizza”.</li>
-        <li>Quando achar que é a sua vez, toque em <b>Baixar minha carta</b>. As cartas precisam ir para a mesa em <b>ordem crescente</b>.</li>
-        <li>Se alguém baixar uma carta maior que a de outra pessoa que ainda não baixou, o app avisa: <b>fora da ordem</b>.</li>
+        <li>Quando achar que é a sua vez, toque em <b>Baixar minha carta</b>. As cartas vão para a mesa ${desc?'do <b>maior para o menor</b>':'em <b>ordem crescente</b>'}.</li>
+        <li>${desc?'Se alguém baixar uma carta menor que a de outra pessoa que ainda não baixou':'Se alguém baixar uma carta maior que a de outra pessoa que ainda não baixou'}, o app avisa: <b>fora da ordem</b>.</li>
       </ol>
       <p><b>Criar a sala:</b> escolha quantas rodadas e os assuntos dos temas, e mande o convite (link ou QR code). Cada um coloca o próprio nome, se quiser.</p>
       <p><b>Num celular só:</b> digite os nomes e passe o celular. Cada um toca para ver a própria carta e esconde antes de passar. No fim, a turma arruma a ordem e revela.</p>
       <p><b>Anfitrião:</b> quem cria a sala comanda a partida: começa, revela as cartas, passa a rodada, abre votação e muda o tema. Se cair, outra pessoa segura até ele voltar.</p>
-      <p><b>Ordem da turma:</b> combinem quem baixa primeiro e arrumem a lista. Quando todos concordarem, o anfitrião toca em <b>Revelar nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
+      <p><b>Ordem da turma:</b> arrumem pela barra do tema, de cima para baixo. ${desc?'Em cima fica o extremo do 100 (no tema “Lugares da cidade”, <b>lotado</b>) e embaixo o do 1 (<b>vazio</b>). Se o tema da turma não tiver esses extremos, a barra diz <b>maior</b> e <b>menor</b>.':'Nesta sala a barra ainda vai do menor para o maior.'} Quando todos concordarem, o anfitrião toca em <b>Revelar nessa ordem</b>. O app vira as cartas e confere sozinho.</p>
       <p><b>Dica:</b> escreva a palavra que você falou. Ela aparece na mesa para todos.</p>
       <p><b>Tema:</b> antes de alguém baixar, dá para trocar, votar entre dois temas ou escrever um tema da turma.</p>
-      <p><b>Conversa:</b> o botão no topo abre o chat da sala, no lobby e durante a partida. Dá para combinar a ordem por ali. Na rodada, mensagem com número de 1 a 100 não sai.</p>
+      <p><b>Conversa:</b> o botão no topo abre o chat da sala, no lobby e durante a partida. Dá para combinar quem fica em cima na barra, sem dizer o número. Na rodada, mensagem com número de 1 a 100 não sai.</p>
       <p><b>Telão:</b> uma TV ou notebook pode entrar como mesa, mostrando tudo em tamanho grande. A última mensagem da conversa aparece rapidinho.</p>
       <p><b>No final</b> aparece o placar da partida e, se jogarem várias, o placar da noite.</p>`,
       actions:[{label:'Entendi',value:'ok',cls:'brand'}]});

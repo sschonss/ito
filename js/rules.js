@@ -14,7 +14,7 @@ function checkRoundOver(st){
 function finishRound(st, seats){
   const played=new Set(st.table.map(t=>t.seat)), d=deckFor(st.code,st.game,st.round), hints=st.hints||{};
   st.roundOver=true;
-  markOutOfPlace(st.table);
+  markOutOfPlace(st.table, descending(st));
   st.results.push(st.table.every(t=>t.ok)?1:0);
   const [title,low,high]=themeOf(st);
   st.log=(st.log||[]).filter(l=>l.game===st.game).concat({game:st.game, round:st.round, title, low, high,
@@ -27,7 +27,7 @@ const HOST_ONLY=new Set(['start','reveal','next','restart','voteStart','voteEnd'
 function applyAct(st, a, by){
   const isHost=by.cid===st.hostCid, fresh=a.game===st.game && a.round===st.round;
   if(HOST_ONLY.has(a.t) && !isHost) return false;
-  if(a.t==='start' && st.phase==='lobby'){ st.phase='play'; setEv(st,'start',by); return true; }
+  if(a.t==='start' && st.phase==='lobby'){ if(!st.orderDir) st.orderDir='desc'; st.phase='play'; setEv(st,'start',by); return true; }
   if(a.t==='play' && st.phase==='play' && fresh && !st.roundOver && !st.table.some(t=>t.seat===by.seat)){
     const t=playSeat(st, by.seat);
     setEv(st,'play',by,{card:t.card, ok:t.ok});
@@ -80,6 +80,7 @@ function applyAct(st, a, by){
     setEv(st,'custom',by); return true;
   }
   if(a.t==='restart' && st.phase==='done' && a.game===st.game){
+    if(!st.orderDir) st.orderDir='desc';
     st.game++; st.round=1; st.results=[]; st.themePos=nextThemePos(st); st.table=[]; st.roundOver=false; st.custom=null; st.phase='play'; st.hints={}; st.vote=null; st.plan=[]; st.log=[];
     setEv(st,'restart',by); return true;
   }
@@ -92,22 +93,31 @@ function applyAct(st, a, by){
   }
   return false;
 }
-/* Marca como erradas só as cartas fora do lugar: mantém a maior sequência crescente.
-   Se houver empate, mantém a que usa as cartas menores, ou seja, marca quem foi cedo demais
-   (regra do ito: errou quem baixou enquanto alguém tinha carta menor). */
-function markOutOfPlace(table){
+/* Sala nova: maior primeiro. Sala antiga (sem orderDir) segue do menor para o maior,
+   para não inverter a regra no meio de uma partida que já começou. */
+function descending(st){ return !!(st && st.orderDir==='desc'); }
+/* Marca como erradas só as cartas fora do lugar. Na ordem nova, mantém a maior
+   sequência decrescente; se empatar, a que usa as cartas maiores (marca quem baixou
+   cedo demais, enquanto alguém ainda tinha carta maior). Sem o segundo argumento,
+   vale a ordem nova. Passe false para a regra antiga, crescente. */
+function markOutOfPlace(table, desc){
+  desc=desc!==false;
   const a=table.map(t=>t.card), n=a.length;
-  let best=null, bestLen=-1, bestSum=Infinity;
+  let best=0, bestLen=-1, bestSum=desc?-1:Infinity;
   for(let m=0;m<(1<<n);m++){
-    let last=-1, len=0, sum=0, ok=true;
-    for(let i=0;i<n;i++) if(m&(1<<i)){ if(a[i]<=last){ ok=false; break; } last=a[i]; len++; sum+=a[i]; }
-    if(ok && (len>bestLen || (len===bestLen && sum<bestSum))){ best=m; bestLen=len; bestSum=sum; }
+    let last=desc?101:-1, len=0, sum=0, ok=true;
+    for(let i=0;i<n;i++) if(m&(1<<i)){
+      if(desc?a[i]>=last:a[i]<=last){ ok=false; break; }
+      last=a[i]; len++; sum+=a[i];
+    }
+    if(ok && (len>bestLen || (len===bestLen && (desc?sum>bestSum:sum<bestSum)))){ best=m; bestLen=len; bestSum=sum; }
   }
   table.forEach((t,i)=>t.ok=!!(best&(1<<i)));
 }
 function playSeat(st, seat){
   const d=deckFor(st.code,st.game,st.round), card=d[seat-1], played=new Set(st.table.map(t=>t.seat));
-  const ok=!activeSeats(st).some(s=>!played.has(s) && s!==seat && d[s-1]<card);
+  const desc=descending(st);
+  const ok=!activeSeats(st).some(s=>!played.has(s) && s!==seat && (desc?d[s-1]>card:d[s-1]<card));
   const t={seat, card, ok}; st.table.push(t);
   return t;
 }
@@ -142,7 +152,7 @@ function startHost(room, saved){
   netReset(); NET.role='host'; lastEv='';
   if(saved){ NET.reclaiming=true; NET.reclaimTimer=setTimeout(finishReclaim, RECLAIM_WAIT); }   // dono voltando
   NET.st=saved || { code:room.code, rounds:room.rounds, mask:room.mask, hostCid:CID, ownerCid:CID, ver:1,
-    players:[{seat:1, cid:CID, name:myName, on:true}], banned:[], phase:'lobby',
+    players:[{seat:1, cid:CID, name:myName, on:true}], banned:[], phase:'lobby', orderDir:'desc',
     game:1, round:1, results:[], themePos:0, table:[], roundOver:false, custom:null, history:[], ev:null, hints:{}, log:[], vote:null };
   NET.st.ownerCid=NET.st.ownerCid||CID;
   if(!NET.st.ownerPk && KEYS.ok) NET.st.ownerPk=KEYS.pk;
@@ -168,7 +178,7 @@ function viewFromNet(st){
   S={ mode:'online', code:st.code, rounds:st.rounds, mask:st.mask, n:st.players.length, names,
       seat:me?me.seat:0, game:st.game, round:st.round, results:st.results, themePos:st.themePos,
       status:st.phase==='done'?'done':'play', table:st.table||[], roundOver:!!st.roundOver, custom:st.custom, history:st.history||[],
-      hints:st.hints||{}, vote:st.vote||null, log:st.log||[], plan:st.plan||[], players:st.players };
+      hints:st.hints||{}, vote:st.vote||null, log:st.log||[], plan:st.plan||[], orderDir:st.orderDir||'', players:st.players };
 }
 function showOnline(){
   if(!NET.role) return;

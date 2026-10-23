@@ -22,15 +22,50 @@ async function loadLib(kind){
   }
   return null;
 }
+/* TURN: credenciais de 24 h pedidas em CFG.turnUrl, mais a lista fixa CFG.turn.
+   Timeout, erro ou JSON ruim não seguram a entrada: segue com a lista fixa, ou sem TURN.
+   A lista vai em turnConfig, e o Trystero mantém o STUN padrão. */
+const TURN_FOR=24*60*60*1000, TURN_EARLY=5*60*1000, TURN_WAIT=3000, TURN_KEY='ito-turn';
+let turnMem=null, turnFlight=null;
+const iceList=x=>(Array.isArray(x)?x:[]).filter(s=>s && ((typeof s.urls==='string' && s.urls) || (Array.isArray(s.urls) && s.urls.length)));
+const turnFresh=p=>!!(p && typeof p.exp==='number' && p.exp-TURN_EARLY>Date.now() && iceList(p.servers).length);
+function rememberTurn(servers){
+  turnMem={servers, exp:Date.now()+TURN_FOR};
+  ls.set(TURN_KEY, turnMem);
+  return servers;
+}
+async function pullTurn(url){
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), TURN_WAIT);
+  try{
+    const res=await fetch(url,{cache:'no-store', signal:ctrl.signal, headers:{accept:'application/json'}});
+    if(!res.ok) return [];
+    const data=await res.json();
+    const servers=iceList(data && data.iceServers);
+    return servers.length?rememberTurn(servers):[];
+  }catch(e){ console.warn('ito: sem credenciais TURN'); return []; }
+  finally{ clearTimeout(timer); }
+}
+function liveTurn(){
+  const url=typeof CFG.turnUrl==='string'?CFG.turnUrl.trim():'';
+  if(!url) return Promise.resolve([]);
+  if(turnFresh(turnMem)) return Promise.resolve(iceList(turnMem.servers));
+  const saved=ls.get(TURN_KEY,null);
+  if(turnFresh(saved)){ turnMem=saved; return Promise.resolve(iceList(saved.servers)); }
+  if(!turnFlight) turnFlight=pullTurn(url).finally(()=>{ turnFlight=null; });
+  return turnFlight;
+}
+function turnForRoom(){ return liveTurn().then(live=>live.concat(iceList(CFG.turn))); }
 async function connect(code){
   NET.code=code; NET.failed=false;
+  const turnP=turnForRoom();
   const kinds=Object.keys(P2P);
   const results=await Promise.all(kinds.map(async kind=>{
-    const lib=await loadLib(kind);
+    const [lib, turn]=await Promise.all([loadLib(kind), turnP]);
     if(!lib || NET.code!==code) return false;
     try{
       const cfg={appId:APP_ID, password:code};
-      if(Array.isArray(CFG.turn) && CFG.turn.length) cfg.turnConfig=CFG.turn;
+      if(turn.length) cfg.turnConfig=turn;
       const room=lib.joinRoom(cfg, code);
       const a=room.makeAction('m');
       const key=id=>kind+':'+id;

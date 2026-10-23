@@ -98,7 +98,7 @@ class TestChat(E2E):
 
         await ana.page.wait_for_timeout(400)
         await ana.say('vamos de 1º')
-        await host.until("NET.chat.some(m => m.text==='vamos de 1º')", msg='ordinal da ordem pode')
+        await host.until("NET.chat.some(m => m.text==='vamos de 1º')", msg='1º é a vez de quem joga primeiro, não a carta')
         await ana.page.wait_for_timeout(400)
         await ana.say('lembrei de 2024')
         await pedro.until("NET.chat.some(m => m.text==='lembrei de 2024')", msg='número fora de 1 a 100 pode')

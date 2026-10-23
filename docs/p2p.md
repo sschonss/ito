@@ -15,7 +15,7 @@ O ito roda só com o **GitHub Pages**, que serve arquivos estáticos (HTML, CSS,
 | Trystero | Monta as conexões WebRTC e cuida da sinalização | carregado do jsDelivr (`@trystero-p2p/nostr` e `@trystero-p2p/mqtt`, v0.25.4) |
 | Relays Nostr e brokers MQTT públicos | "Quadro de avisos" onde os celulares trocam os dados para se conectar | serviços de terceiros, gratuitos |
 | STUN (Google, padrão do Trystero) | Ajuda cada celular a descobrir seu endereço público | serviço de terceiros |
-| TURN (opcional) | Retransmite o tráfego quando a conexão direta é bloqueada (comum no 4G/5G) | `config.js` |
+| TURN | Retransmite o tráfego quando a conexão direta é bloqueada (4G/5G, VPN). Por padrão o app pede credenciais de 24 h a um Worker da Cloudflare; a lista fixa em `config.js` continua valendo | `turnUrl` e `turn` em `config.js` |
 | Service worker | Guarda o app e a biblioteca no celular | `sw.js` |
 
 ### Camadas dentro do app
@@ -87,8 +87,8 @@ sequenceDiagram
   alt caminho direto funciona
     A->>B: data channel direto (DTLS, criptografado)
     B->>A: dados nos dois sentidos
-  else NAT bloqueia (comum no 4G/5G)
-    A->>B: via servidor TURN (se configurado em config.js)
+  else NAT bloqueia (comum no 4G/5G ou VPN)
+    A->>B: via TURN (credenciais do Worker, ou a lista turn em config.js)
   end
   Note over A,B: daqui em diante os relays não são mais usados
 ```
@@ -104,6 +104,8 @@ const P2P = {
   m: ['https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt@0.25.4/+esm',  'https://esm.sh/@trystero-p2p/mqtt@0.25.4']
 };
 const room = lib.joinRoom({ appId: APP_ID, password: code, turnConfig }, code);
+// turnConfig = iceServers do Worker (se a busca deu certo) + a lista turn de config.js.
+// turnConfig deixa o STUN padrão do Trystero no lugar.
 ```
 
 - Cada rede tem um endereço reserva (esm.sh) caso o jsDelivr falhe.
@@ -214,6 +216,7 @@ sequenceDiagram
   phase: 'lobby' | 'play' | 'done',
   game, round, results, themePos, // andamento
   table: [{seat, card, ok}],      // cartas na mesa, na ordem em que foram reveladas
+  orderDir,                       // 'desc' = maior primeiro; ausente = sala antiga, menor primeiro
   plan, hints, vote, custom,      // ordem combinada, dicas, votação, tema da turma
   log, history, ev                // registro das rodadas, placar da noite, último evento
 }
@@ -335,7 +338,9 @@ if (a.t === 'next' && fresh && st.roundOver) { ... }   // o 2º "próxima rodada
 
 ### Quem está fora do lugar
 
-Quando a rodada termina, o anfitrião marca como erradas **só as cartas fora do lugar**: mantém a maior sequência crescente e marca o resto (`markOutOfPlace()`).
+Quando a rodada termina, o anfitrião marca como erradas **só as cartas fora do lugar**: mantém a maior sequência decrescente (do maior para o menor) e marca o resto (`markOutOfPlace()`). Em empate de tamanho, fica a sequência com as cartas maiores — marca quem baixou cedo demais, enquanto alguém ainda tinha carta maior. **Baixar minha carta** usa a mesma regra.
+
+Salas criadas nesta versão levam `orderDir: 'desc'` no estado. Uma sala antiga, já em andamento, não tem esse campo: o anfitrião (mesmo numa versão nova) continua conferindo em ordem crescente até a partida acabar, e a barra na tela acompanha. O `plan` segue sendo só a lista de lugares, de cima para baixo. Quem manda a regra é o anfitrião; o aviso “Nova versão disponível” é o que pede para atualizar o app.
 
 ## 7. Presença e troca de anfitrião
 
@@ -386,6 +391,7 @@ sequenceDiagram
 | `ito-online` | Sala atual, papel (`host`, `guest`, `tv`) e último estado, para reabrir o app e voltar à sala |
 | `ito-key` | Chave do celular (assinaturas) |
 | `ito-sound`, `ito-tips`, `ito-big` | Preferências (sons, dicas, letra maior) |
+| `ito-turn` | Credenciais TURN já pedidas, até perto de vencer (24 h, com folga de 5 min) |
 
 ## 9. Sem internet
 
@@ -408,25 +414,27 @@ flowchart TD
 - O `sw.js` guarda uma cópia (cache `ito-lib-1`) para não depender do CDN a cada abertura.
 - O app em si fica no cache `ito-<VERSION>`. **Menu → Atualizar app** apaga os caches e recarrega.
 
-## 11. TURN (opcional, recomendado para 4G/5G)
+## 11. TURN (4G/5G e VPN)
 
-Algumas operadoras usam NAT que impede a conexão direta. Um servidor TURN retransmite os dados (que continuam criptografados de ponta a ponta). Para ativar, preencha `turn` em `config.js`. Passo a passo para quem não é técnico: [`turn.md`](turn.md). O app passa a lista para o Trystero via `turnConfig`.
+Algumas redes usam NAT que impede a conexão direta. Um servidor TURN retransmite os dados (que continuam criptografados de ponta a ponta).
+
+Por padrão o app pede `iceServers` em `CFG.turnUrl` (o Worker `https://ito-turn.sschonss.workers.dev`). A busca tem timeout de 3 segundos, não guarda a resposta no service worker (`Cache-Control: no-store`) e, no celular, reaproveita as credenciais até 5 minutos antes das 24 h. Se falhar, usa só a lista `CFG.turn`. As duas listas, quando existem, vão juntas para o Trystero em `turnConfig` (o STUN padrão da biblioteca continua). Passo a passo: [`turn.md`](turn.md).
 
 ## 12. Limitações conhecidas
 
 - **Precisa de internet** para a primeira conexão (sinalização). Depois de conectados, o tráfego é direto.
-- **Sem TURN**, alguns pares em redes móveis podem não conseguir se conectar.
+- **Se o Worker de TURN estiver fora**, o app entra na sala mesmo assim e volta ao comportamento antigo (lista `turn` ou só conexão direta). Alguns pares em redes móveis podem não se conectar nesse caso.
 - **Dependência de serviços públicos:** relays Nostr, brokers MQTT, STUN e CDN são de terceiros e podem ficar fora do ar. As duas redes e os endereços reserva reduzem o risco.
 - **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Quando a rede volta, prevalece o estado mais novo e o dono da sala reassume.
 - **Sem internet não tem jogo:** não existe modo sem conexão.
 - **Não é à prova de trapaça:** como as cartas são calculadas no próprio celular, alguém que saiba inspecionar o código no navegador poderia descobrir os números. Para um jogo entre amigos isso é aceitável. Impedir exigiria um servidor que guardasse as cartas.
 - **Assinaturas protegem contra anfitrião falso, não contra quem já está na sala ver os números:** quem tem o código entra como jogador normal.
 - **Privacidade:** o código da sala é a senha da negociação. Quem tiver o código pode entrar (o anfitrião pode remover).
-- **Conversa fora do estado assinado:** o chat não entra no estado que é assinado e conferido a cada 2 s, para não inflar essa mensagem. Quem já está na sala vê o que chegou na hora; quem entra ou reconecta recebe as últimas 50 com o anfitrião. Mensagem de quem foi tirado da sala é ignorada. Na rodada, o app não envia texto com um número solto de 1 a 100 (a carta continua secreta).
+- **Conversa fora do estado assinado:** o chat não entra no estado que é assinado e conferido a cada 2 s, para não inflar essa mensagem. Quem já está na sala vê o que chegou na hora; quem entra ou reconecta recebe as últimas 50 com o anfitrião. Mensagem de quem foi tirado da sala é ignorada. Na rodada, o app não envia texto com um número solto de 1 a 100 (a carta continua secreta, no maior-primeiro e na sala antiga). “1º” passa: é quem joga primeiro, o alto da barra, não a carta 1.
 
 ## 13. Como é testado
 
-Os testes end-to-end (`tests/e2e`) trocam a biblioteca real por um **relé falso** (`fake_p2p.mjs`) que imita as duas redes dentro do próprio teste.
+Os testes end-to-end (`tests/e2e`) trocam a biblioteca real por um **relé falso** (`fake_p2p.mjs`) que imita as duas redes dentro do próprio teste. O pedido de credenciais TURN também é interceptado, então os testes não chamam o Worker.
 
 ```mermaid
 flowchart LR
@@ -457,7 +465,8 @@ Os arquivos são scripts comuns carregados em ordem pelo `index.html` e comparti
 | `onMsg()` | Recebe e trata as mensagens |
 | `hostHello()` | Anfitrião recebe quem chegou e dá um lugar |
 | `applyAct()` / `HOST_ONLY` | Regras do jogo e ações que só o anfitrião pode pedir |
-| `playSeat()` / `markOutOfPlace()` / `checkRoundOver()` | Cartas na mesa, fora do lugar, fim da rodada |
+| `playSeat()` / `markOutOfPlace()` / `checkRoundOver()` | Cartas na mesa, fora do lugar (maior primeiro nas salas novas), fim da rodada |
+| `descending()` / `orderEnds()` | Barra do tema: maior em cima; sala antiga segue do menor para o maior |
 | `hostCommit()` | Aumenta a versão, salva e envia o estado |
 | `hostLost()` / `finishReclaim()` / `newerState()` | Anfitrião provisório e volta do dono |
 | `syncTick()` / `stateHash()` / `acceptState()` | Conferência de sincronia (tick, ack, pull) |

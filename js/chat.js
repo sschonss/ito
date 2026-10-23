@@ -17,7 +17,9 @@ function chatRoundOn(){
   const st=NET.st;
   return !!(st && st.phase==='play' && !st.roundOver);
 }
-/* Número solto de 1 a 100. "1º" (a ordem da turma) e 101, 2024 etc. passam. */
+/* Número solto de 1 a 100: é a carta, no maior-primeiro e na sala antiga.
+   "1º" / "1°" é quem joga primeiro (o alto da barra, a carta maior), não a carta 1.
+   101, 2024 etc. passam. */
 function chatLeaksNumber(text){
   const re=/(^|[^0-9A-Za-zÀ-ÿ])(\d+)(?![0-9A-Za-zÀ-ÿ])/g;
   let m;
@@ -73,7 +75,13 @@ function refreshChatBadge(){
   else { b.hidden=true; fab.setAttribute('aria-label','Conversa'); }
 }
 function chatSyncNote(){
-  const note=$('#chatNote'); if(note) note.hidden=!chatRoundOn();
+  const note=$('#chatNote'); if(!note) return;
+  const on=chatRoundOn();
+  note.hidden=!on;
+  if(!on) return;
+  note.textContent=descending(NET.st)
+    ? 'Na rodada, sem falar o número. Em cima da barra é o maior.'
+    : 'Na rodada, sem falar o número. Nesta sala a barra ainda vai do menor para o maior.';
 }
 function paintChat(force){
   const d=$('#chat'), log=$('#chatLog');
@@ -85,7 +93,7 @@ function paintChat(force){
   log.replaceChildren();
   if(!NET.chat.length){
     const p=document.createElement('p'); p.className='chat-empty';
-    p.textContent='Nenhuma mensagem ainda. Combina a ordem por aqui.';
+    p.textContent='Nenhuma mensagem ainda. Combina a barra por aqui, sem dizer o número.';
     log.appendChild(p); return;
   }
   for(const m of NET.chat){

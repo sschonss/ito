@@ -40,14 +40,29 @@ class TestPartida(E2E):
         for p in todos: await p.page.locator('.vote-opt[data-i="1"]').click()
         await self.all_until(todos, f"!S.vote && theme()[0]==={escolhido!r}", 'tema escolhido')
 
-        # dicas aparecem para todos
+        # dicas aparecem para todos, na barra do tema (100 em cima, 1 embaixo)
         await host.page.fill('#myHint', 'pizza'); await host.act('saveHint')
         await ana.page.fill('#myHint', 'jiló'); await ana.act('saveHint')
         await pedro.until("Object.values(S.hints).length===2", msg='dicas chegaram')
         self.assertIn('pizza', await pedro.text('.order-list'))
+        self.assertEqual(await host.js("NET.st.orderDir"), 'desc')
+        self.assertEqual(await ana.js("S.orderDir"), 'desc')
+        low, high = await host.js("[theme()[1], theme()[2]]")
+        self.assertEqual(await host.text('.order-end.top b'), high)
+        self.assertEqual(await host.text('.order-end.bot b'), low)
+        self.assertEqual(await host.text('.order-end.top span'), '100')
+        self.assertEqual(await host.text('.order-end.bot span'), '1')
+        self.assertEqual(await host.count('.order-list .pos'), 0, 'a barra não numera 1º, 2º, 3º')
+        top = await host.page.locator('.order-end.top').bounding_box()
+        nome = await host.page.locator('.order-list li').first.bounding_box()
+        bot = await host.page.locator('.order-end.bot').bounding_box()
+        self.assertLess(top['y'], nome['y'])
+        self.assertLess(nome['y'], bot['y'])
+        self.assertEqual(await host.js("()=>getComputedStyle(document.querySelector('.order-list'),'::before').width"), '4px')
+        self.assertTrue(await host.js("()=>{ const el=document.querySelector('.order'); return el.scrollWidth<=el.clientWidth+1 }"))
 
-        # rodada 1: ordem certa montada e revelada -> rodada perfeita
-        seats = sorted([(await p.my_card(), await p.seat()) for p in todos])
+        # rodada 1: ordem certa (maior primeiro) montada e revelada -> rodada perfeita
+        seats = sorted([(await p.my_card(), await p.seat()) for p in todos], reverse=True)
         await pedro.js("o=>sendAct('plan',{order:o})", [s for _, s in seats])
         await self.all_until(todos, f"JSON.stringify(planOrder())==='{json.dumps([s for _, s in seats], separators=(',', ':'))}'", 'ordem sincronizada')
         await host.act('revealPlan'); await host.confirm()
@@ -57,19 +72,19 @@ class TestPartida(E2E):
         await host.act('next')
         await self.all_until(todos, "S.round===2 && !S.roundOver", 'rodada 2')
 
-        # rodada 2: ordem errada -> só a carta fora do lugar marcada
+        # rodada 2: o menor entra na frente do do meio -> só ele fora do lugar
         cards = {await p.seat(): await p.my_card() for p in todos}
         lo, mid, hi = sorted(cards, key=cards.get)
-        await host.js("o=>sendAct('reveal',{order:o})", [mid, hi, lo])
+        await host.js("o=>sendAct('reveal',{order:o})", [hi, lo, mid])
         await self.all_until(todos, "S.roundOver", 'rodada 2 revelada')
         bad = await ana.js("S.table.filter(t=>!t.ok).map(t=>t.seat)")
-        self.assertEqual(bad, [lo], 'só quem estava fora do lugar fica marcado')
+        self.assertEqual(bad, [lo], 'só quem baixou cedo demais fica marcado')
         self.assertEqual(await ana.js("S.results"), [1, 0])
         await host.act('next')
         await self.all_until(todos, "S.round===3 && !S.roundOver", 'rodada 3')
 
-        # rodada 3: um por um, na ordem certa
-        pairs = sorted([(await p.my_card(), p) for p in todos], key=lambda x: x[0])
+        # rodada 3: um por um, do maior para o menor
+        pairs = sorted([(await p.my_card(), p) for p in todos], key=lambda x: x[0], reverse=True)
         for _, p in pairs:
             await p.page.locator('[data-act=playCard]').click(); await p.confirm()
             await p.until("S.table.some(t=>t.seat===S.seat)")
@@ -114,6 +129,29 @@ class TestPartida(E2E):
         await pedro.until("S.custom")
         await host.until("S.custom && S.custom.title==='Coisas que o tio fala'")
         self.assertIn('tema da turma', (await host.text('.theme .eyebrow')).lower())
+        # só o extremo do 100 foi preenchido; o do 1 fica o placeholder
+        self.assertEqual(await host.text('.order-end.top b'), 'pérola')
+        self.assertEqual(await host.text('.order-end.bot b'), 'pouco')
+
+    async def test_sala_antiga_mantem_o_menor_em_cima(self):
+        url, host, (ana,) = await self.room(names=('Luiz', 'Ana'))
+        low, high = await host.js("[theme()[1], theme()[2]]")
+        self.assertEqual(await host.text('.order-end.top b'), high)
+        await host.js("NET.st.orderDir=''; showOnline()")
+        self.assertEqual(await host.text('.order-end.top b'), low, 'sem orderDir a barra começa no extremo do 1')
+        self.assertEqual(await host.text('.order-end.bot b'), high)
+        self.assertEqual(await host.text('.order-end.top span'), '1')
+
+    async def test_tema_sem_extremos_usa_maior_e_menor(self):
+        url, host, (ana,) = await self.room(names=('Luiz', 'Ana'))
+        await host.act('themeMenu'); await host.page.locator('#dlgActions [value=customTheme]').click()
+        await host.page.fill('#ctTitle', 'Coisas da turma')
+        await host.confirm()
+        await ana.until("S.custom && S.custom.title==='Coisas da turma'")
+        self.assertEqual(await host.text('.order-end.top b'), 'maior')
+        self.assertEqual(await host.text('.order-end.bot b'), 'menor')
+        self.assertEqual(await host.text('.order-end.top span'), '100')
+        self.assertTrue(await host.js("()=>{ const el=document.querySelector('.order'); return el.scrollWidth<=el.clientWidth+1 }"))
 
 
 class TestTelao(E2E):
@@ -126,9 +164,18 @@ class TestTelao(E2E):
         self.assertEqual(await host.js("NET.st.players.length"), 3, 'telão não vira jogador')
         await host.act('start')
         await tv.page.wait_for_selector('.tv-theme h2')
+        low, high = await tv.js("[theme()[1], theme()[2]]")
+        await tv.page.wait_for_selector('.order-scale.tv')
+        self.assertEqual(await tv.text('.order-end.top b'), high)
+        self.assertEqual(await tv.text('.order-end.bot b'), low)
+        self.assertEqual(await tv.count('.order-list .pos'), 0)
+        top = await tv.page.locator('.order-end.top').bounding_box()
+        bot = await tv.page.locator('.order-end.bot').bounding_box()
+        self.assertLess(top['y'], bot['y'])
         await host.js("sendAct('reveal',{order:planOrder()})")
         await tv.page.wait_for_selector('.tv-table .ruler')
         self.assertEqual(await tv.count('.tv-table .r-label'), 3)
+        self.assertIn('alto da barra', (await tv.text('.r-legend')).lower())
 
 
 class TestVotacao(E2E):

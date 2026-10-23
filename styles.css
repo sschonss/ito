@@ -339,16 +339,27 @@ dialog::backdrop{background:rgba(10,8,6,.45);backdrop-filter:blur(2px)}
 .vote .link-btn{display:block;margin:12px auto 0}
 
 .order h2{margin:0}
-.order-list{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:8px}
-.order-list li{display:flex;align-items:center;gap:10px;padding:8px 8px 8px 12px;border-radius:var(--radius-sm);background:var(--surface-2)}
+.order-scale{--gutter:16px;display:flex;flex-direction:column;gap:8px;margin:0 0 12px;min-width:0}
+.order-end{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding-left:var(--gutter)}
+.order-end b{flex:1;min-width:0;font-weight:700;font-size:15px;line-height:1.25;overflow-wrap:anywhere}
+.order-end span{flex:none;font:800 13px/1 var(--display);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.order-end.top b{color:var(--brand)}
+.order-list{list-style:none;position:relative;margin:0;padding:2px 0 2px var(--gutter);display:grid;gap:8px}
+.order-list::before{content:"";position:absolute;left:4px;top:2px;bottom:2px;width:4px;border-radius:4px;
+  background:linear-gradient(to bottom, var(--brand), var(--line))}
+.order-list li{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 10px;border-radius:var(--radius-sm);background:var(--surface-2);min-width:0}
 .order-list li.me{outline:2px solid var(--brand);outline-offset:-2px}
-.order-list .pos{font:800 18px/1 var(--display);min-width:30px;color:var(--brand)}
 .order-list .who{flex:1;min-width:0;display:flex;flex-direction:column}
 .order-list .who b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .order-list .who i{font-style:normal;font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .order-list .who i.none{opacity:.6}
-.order-list .row-btn{background:var(--surface);margin:0}
+.order-list .row-btn{background:var(--surface);margin:0;flex:none}
 .order-list .row-btn:disabled{opacity:.3}
+.order-scale.confirm{gap:6px;margin:0 0 10px}
+.order-scale.confirm .order-end span{display:none}
+.order-scale.confirm .order-end b{font-size:14px}
+.order-scale.confirm .order-list{gap:2px}
+.order-scale.confirm .order-list li{background:transparent;padding:2px 0 2px 10px}
 .pile li i{font-style:normal;font-size:10px;color:var(--ink-2);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pile.reveal-anim li.new{animation:flipin .5s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i) * .45s)}
 @keyframes flipin{0%{transform:rotateY(90deg) scale(.9);opacity:0}100%{transform:none;opacity:1}}
@@ -387,8 +398,11 @@ body.tv .appbar-meta{font-size:16px}
 .pile.big li span{font-size:16px}
 .pile.big li i{font-size:14px}
 .pile.big li em{font-size:13px}
+.order-scale.tv{--gutter:26px;gap:12px;margin-bottom:8px}
+.order-scale.tv .order-end b{font-size:clamp(22px,2.4vw,32px)}
+.order-scale.tv .order-end span{font-size:20px}
+.order-scale.tv .order-list::before{left:6px;width:6px}
 .order-list.tv li{padding:14px 18px}
-.order-list.tv .pos{font-size:26px}
 .order-list.tv .who b{font-size:22px}
 .order-list.tv .who i{font-size:17px}
 .result.big{margin-top:24px;font-size:24px;justify-content:flex-start}

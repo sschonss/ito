@@ -71,11 +71,36 @@ class TestBasics(E2E):
 
     async def test_marca_so_a_carta_fora_do_lugar(self):
         p = await self.phone('Ana'); await p.goto()
-        cases = {(98, 11): [98], (30, 44, 20): [20], (10, 20, 30): [], (50, 10, 60, 70): [50],
-                 (98, 36, 25): [98, 36], (40, 60, 50): [60]}
+        # ordem nova: do maior para o menor. Empate fica com as cartas maiores.
+        cases = {(98, 36, 25): [], (98, 11): [], (11, 98): [11], (10, 20, 30): [10, 20],
+                 (30, 44, 20): [30], (40, 60, 50): [40], (90, 70, 80, 60): [70],
+                 (50, 10, 60, 70): [60, 70]}
         for cards, expected in cases.items():
             bad = await p.js("c=>{ const t=c.map(card=>({card})); markOutOfPlace(t); return t.filter(x=>!x.ok).map(x=>x.card); }", list(cards))
             self.assertEqual(bad, expected, cards)
+        # sala antiga, sem orderDir: continua crescente
+        old = {(98, 11): [98], (30, 44, 20): [20], (10, 20, 30): [], (50, 10, 60, 70): [50],
+               (98, 36, 25): [98, 36], (40, 60, 50): [60]}
+        for cards, expected in old.items():
+            bad = await p.js("c=>{ const t=c.map(card=>({card})); markOutOfPlace(t, false); return t.filter(x=>!x.ok).map(x=>x.card); }", list(cards))
+            self.assertEqual(bad, expected, cards)
+
+    async def test_baixar_carta_segue_o_maior_restante(self):
+        p = await self.phone('Ana'); await p.goto()
+        r = await p.js("""() => {
+          const code='KQXT-AVCR', game=1, round=1, d=deckFor(code, game, round);
+          const seats=[1,2,3];
+          const play=(orderDir, order)=>{
+            const st={code, game, round, orderDir, table:[], players:seats.map(s=>({seat:s, on:true}))};
+            return order.map(seat=>playSeat(st, seat).ok);
+          };
+          const asc=[...seats].sort((a,b)=>d[a-1]-d[b-1]);
+          const desc=[...asc].reverse();
+          return {desc:play('desc', desc), asc:play(undefined, asc), ascOnDesc:play('desc', asc)};
+        }""")
+        self.assertEqual(r['desc'], [True, True, True], 'maior primeiro passa')
+        self.assertEqual(r['asc'], [True, True, True], 'sala antiga ainda aceita o menor primeiro')
+        self.assertEqual(r['ascOnDesc'], [False, False, True], 'menor primeiro fica fora na sala nova')
 
     async def test_mesmo_codigo_gera_mesmas_cartas_e_temas(self):
         a = await self.phone('A'); b = await self.phone('B')

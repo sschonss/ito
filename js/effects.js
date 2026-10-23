@@ -63,6 +63,24 @@ function planOrder(){
   const plan=(S.plan||[]).filter(s=>pend.includes(s));
   return plan.concat(pend.filter(s=>!plan.includes(s)));
 }
+/* Extremos da barra. Em cima é quem joga primeiro. Tema da turma sem extremos
+   (campos vazios, ou o placeholder pouco/muito) cai em maior / menor. */
+function orderEnds(){
+  const [,low,high,ci]=theme();
+  let lo=String(low==null?'':low).trim(), hi=String(high==null?'':high).trim();
+  if(ci<0 && lo==='pouco' && hi==='muito'){ lo=''; hi=''; }
+  if(!lo) lo='menor';
+  if(!hi) hi='maior';
+  return descending(S) ? {top:hi, bot:lo, topN:'100', botN:'1'} : {top:lo, bot:hi, topN:'1', botN:'100'};
+}
+function orderScale(rows, cls){
+  const e=orderEnds(), extra=cls?` ${cls}`:'';
+  return `<div class="order-scale${extra}">
+    <div class="order-end top"><b>${esc(e.top)}</b><span>${e.topN}</span></div>
+    <ul class="order-list${cls==='tv'?' tv':''}" aria-label="Ordem, de ${esc(e.top)} até ${esc(e.bot)}">${rows}</ul>
+    <div class="order-end bot"><b>${esc(e.bot)}</b><span>${e.botN}</span></div>
+  </div>`;
+}
 function votePanel(){
   const v=S.vote, mine=v.votes[CID], c=[0,0]; Object.values(v.votes).forEach(i=>c[i]++);
   const total=S.players.filter(p=>p.on).length;
@@ -83,7 +101,7 @@ function highlights(game){
     const x=hinted.reduce((a,b)=>Math.abs(b.card-50)>Math.abs(a.card-50)?b:a);
     out.push({k:'Dica mais ousada', v:`${nameOf(x.seat)} disse “${x.hint}” com ${x.card}`, sub:x.title});
   }
-  const bad=logs.flatMap(l=>{ const sorted=l.plays.map(p=>p.card).sort((a,b)=>a-b);
+  const bad=logs.flatMap(l=>{ const sorted=l.plays.map(p=>p.card).sort((a,b)=>descending(S)?b-a:a-b);
     return l.plays.map((p,i)=>Object.assign({title:l.title, off:Math.abs(sorted.indexOf(p.card)-i)},p)).filter(p=>!p.ok); });
   if(bad.length){
     const x=bad.reduce((a,b)=>b.off>a.off?b:a);
