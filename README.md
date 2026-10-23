@@ -21,6 +21,7 @@ Há dois jeitos de jogar:
 - **Dica escrita:** cada um escreve a palavra que falou; ela aparece na mesa ao lado da carta.
 - Antes de alguém baixar, dá para **trocar o tema**, **votar entre dois temas** ou **escrever um tema da turma**.
 - **Reações** com emoji aparecem na tela de todos.
+- **Conversa** na sala e durante a partida (botão no topo, com aviso de mensagem nova). Mostra quem falou e a hora. Quem entra depois ou reconecta vê as últimas mensagens. Na rodada, o app não envia um número de 1 a 100: a ordem se combina pela barra (maior em cima), sem digitar a carta. No telão, a última mensagem aparece por alguns segundos.
 - **Modo telão:** uma TV ou notebook entra como mesa (sem carta) e mostra QR code, tema, cartas e dicas em tamanho grande.
 - **Confete e sons** (gerados no próprio app, com opção de desligar no menu).
 - **Resumo para compartilhar:** imagem com placar e destaques da partida, pronta para o WhatsApp.
@@ -75,7 +76,7 @@ Uma vez por dia (e pelo botão **Run workflow**) roda também o teste de **conex
 |---|---|
 | `index.html` | Estrutura da página |
 | `styles.css` | Visual (tema claro e escuro) |
-| `js/` | Lógica do jogo, em partes carregadas nesta ordem: `themes` (temas e ícones), `core` (estado, sorteio, código da sala, componentes), `home`, `crypto` (chaves e assinaturas), `net` (conexão e sincronia), `rules` (regras do anfitrião), `screens`, `effects` (sons, votação, destaques), `ruler` (régua e telão), `actions` (menu e botões), `pass` (celular só), `boot` (início) |
+| `js/` | Lógica do jogo, em partes carregadas nesta ordem: `themes` (temas e ícones), `core` (estado, sorteio, código da sala, componentes), `home`, `crypto` (chaves e assinaturas), `net` (conexão e sincronia), `rules` (regras do anfitrião), `screens`, `effects` (sons, votação, destaques), `ruler` (régua e telão), `actions` (menu e botões), `chat` (conversa da sala), `pass` (celular só), `boot` (início) |
 | `sw.js` | Service worker (cache offline) |
 | `config.js` | Endereço das credenciais TURN e lista fixa opcional |
 | `lib/qrcodegen.js` | Gerador de QR code (Project Nayuki, MIT) |

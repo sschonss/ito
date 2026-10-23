@@ -13,6 +13,7 @@ function netReset(){
   clearTimeout(NET.timer); clearTimeout(NET.graceTimer); clearTimeout(NET.reclaimTimer); clearInterval(NET.syncTimer);
   Object.assign(NET,{links:[],role:null,code:null,st:null,peers:{},failed:false,timedOut:false,timer:null,graceTimer:null,
     fresh:false,spectator:false,acks:{},reclaiming:false,reclaimTimer:null,syncTimer:null,sig:'',sigVer:-1,pinFp:null,pinOwnerPk:null,ownerFp:''});
+  chatReset();
 }
 async function loadLib(kind){
   if(NET.libs[kind]) return NET.libs[kind];
@@ -155,22 +156,26 @@ function acceptState(st, peer){
   if(!NET.spectator && !st.players.some(p=>p.cid===CID)) sendHello(peer);
   else sendTo(peer,{t:'ack', ver:st.ver, h:stateHash(st)});
   saveOnline(); showOnline();
+  flushChatStash(); maybePullChat(peer);
 }
 async function onMsg(m, peer){
   if(!m || typeof m!=='object') return;
   if(m.t==='hello' && typeof m.cid==='string' && !(await helloValid(m))) return;          // apresentação falsa
   if(m.t==='state' && m.st && m.st.code===NET.code && !(await stateValid(m, peer))) return;    // estado sem assinatura válida
   if(m.t==='react'){ if(m.id && seenReacts.has(m.id)) return; seenReacts.add(m.id); if(seenReacts.size>200) seenReacts.clear(); showReaction(m.e, String(m.by||'').slice(0,20)); return; }
+  if(m.t==='chat'){ receiveChat(m, peer); return; }
+  if(m.t==='chatlog'){ receiveChatLog(m, peer); return; }
   if(m.t==='hello' && typeof m.cid==='string'){
     NET.peers[peer]=m.cid;
     if(isHostNow()) hostHello(m, peer);
+    flushChatStash();
     return;
   }
   if(m.t==='state' && m.st && m.st.code===NET.code){
     NET.peers[peer]=m.st.hostCid;
     if(m.st.hostCid===CID) return;
     if(NET.reclaiming){                                    // dono voltando: guarda o estado mais novo
-      if(newerState(m.st, NET.st)){ NET.st=m.st; clearTimeout(NET.reclaimTimer); NET.reclaimTimer=setTimeout(finishReclaim, 1500); }
+      if(newerState(m.st, NET.st)){ NET.st=m.st; clearTimeout(NET.reclaimTimer); NET.reclaimTimer=setTimeout(finishReclaim, 1500); flushChatStash(); maybePullChat(peer); }
       return;
     }
     if(NET.role==='host'){
@@ -195,6 +200,7 @@ async function onMsg(m, peer){
   if(isHostNow()){
     const cid=NET.peers[peer];
     if(m.t==='pull'){ sendState(peer, true); return; }
+    if(m.t==='chatpull'){ if(!(cid && (NET.st.banned||[]).includes(cid))) sendChatLog(peer); return; }
     if(m.t==='ack'){ if(cid) NET.acks[cid]={ver:m.ver, h:m.h, at:Date.now()}; if(m.h!==stateHash(NET.st) && m.ver===NET.st.ver) sendState(peer, true); return; }
     const pl=NET.st.players.find(p=>p.cid===cid);
     if(!pl) return;
@@ -228,7 +234,7 @@ function syncTick(){
 function hostHello(m, peer){
   const st=NET.st;
   if((st.banned||[]).includes(m.cid)){ sendTo(peer,{t:'kicked'}); return; }
-  if(m.spectator){ sendState(peer); return; }       // telão: só assiste
+  if(m.spectator){ sendState(peer); sendChatLog(peer); return; }       // telão: só assiste
   let pl=st.players.find(p=>p.cid===m.cid);
   if(pl && pl.pk && m.pk && !samePk(pl.pk, m.pk)) return;   // alguém tentando usar o lugar de outra pessoa
   if(!pl){
@@ -238,5 +244,6 @@ function hostHello(m, peer){
   if(!pl.pk && m.pk) pl.pk={x:m.pk.x, y:m.pk.y};
   pl.on=true;
   if(typeof m.name==='string' && m.name.trim()) pl.name=m.name.trim().slice(0,20);
+  sendChatLog(peer);
   hostCommit();
 }

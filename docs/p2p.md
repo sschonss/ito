@@ -111,7 +111,7 @@ const room = lib.joinRoom({ appId: APP_ID, password: code, turnConfig }, code);
 - Cada rede tem um endereço reserva (esm.sh) caso o jsDelivr falhe.
 - A senha da sala é o próprio código: a negociação só é entendida por quem tem o código.
 - Como dois celulares podem ficar conectados **pelas duas redes**, cada conexão recebe um prefixo (`n:abc123`, `m:xyz789`), e o app mapeia as duas para a mesma pessoa (o `CID`, um identificador guardado no celular).
-- Todas as mensagens são **idempotentes**: receber a mesma coisa duas vezes não muda nada. As reações têm um `id` para não aparecerem duplicadas.
+- Todas as mensagens são **idempotentes**: receber a mesma coisa duas vezes não muda nada. Reações e mensagens da conversa têm um `id` para não aparecerem duplicadas (as duas redes entregam cada uma).
 
 ```mermaid
 flowchart LR
@@ -237,6 +237,9 @@ Cada mudança aumenta `ver`, e o anfitrião envia o estado inteiro para todos (`
 | `name {name}` | convidado → anfitrião | Mudou o nome |
 | `bye` | convidado → anfitrião | Saiu da sala |
 | `react {e, by, id}` | qualquer → todos | Reação com emoji (não passa pelo estado) |
+| `chat {id, text, at}` | jogador → todos | Mensagem da conversa. Não entra no estado assinado. O nome mostrado é o do lugar de quem enviou (o `cid` da conexão), não um nome dentro da mensagem |
+| `chatlog {log}` | anfitrião → quem pediu ou acabou de entrar | Até 50 mensagens recentes, para quem entra ou reconecta. Cada item é `{id, cid, text, at, name}` |
+| `chatpull` | convidado → anfitrião | "Me manda a conversa recente" (no `hello` o anfitrião também já empurra o `chatlog`) |
 | `full` / `kicked` / `closed` | anfitrião → convidado | Sala cheia, removido ou sala encerrada |
 
 ### Telão (TV ou notebook)
@@ -247,6 +250,7 @@ flowchart LR
   H -- "state (não ganha lugar nem carta)" --> TV
   H -- "state" --> J1["📱 Jogadores"]
   J1 -- "react" --> TV
+  J1 -- "chat" --> TV
 ```
 
 ### Ciclo da partida
@@ -426,6 +430,7 @@ Por padrão o app pede `iceServers` em `CFG.turnUrl` (o Worker `https://ito-turn
 - **Não é à prova de trapaça:** como as cartas são calculadas no próprio celular, alguém que saiba inspecionar o código no navegador poderia descobrir os números. Para um jogo entre amigos isso é aceitável. Impedir exigiria um servidor que guardasse as cartas.
 - **Assinaturas protegem contra anfitrião falso, não contra quem já está na sala ver os números:** quem tem o código entra como jogador normal.
 - **Privacidade:** o código da sala é a senha da negociação. Quem tiver o código pode entrar (o anfitrião pode remover).
+- **Conversa fora do estado assinado:** o chat não entra no estado que é assinado e conferido a cada 2 s, para não inflar essa mensagem. Quem já está na sala vê o que chegou na hora; quem entra ou reconecta recebe as últimas 50 com o anfitrião. Mensagem de quem foi tirado da sala é ignorada. Na rodada, o app não envia texto com um número solto de 1 a 100 (a carta continua secreta, no maior-primeiro e na sala antiga). “1º” passa: é quem joga primeiro, o alto da barra, não a carta 1.
 
 ## 13. Como é testado
 
@@ -460,9 +465,12 @@ Os arquivos são scripts comuns carregados em ordem pelo `index.html` e comparti
 | `onMsg()` | Recebe e trata as mensagens |
 | `hostHello()` | Anfitrião recebe quem chegou e dá um lugar |
 | `applyAct()` / `HOST_ONLY` | Regras do jogo e ações que só o anfitrião pode pedir |
-| `playSeat()` / `markOutOfPlace()` / `checkRoundOver()` | Cartas na mesa, fora do lugar, fim da rodada |
+| `playSeat()` / `markOutOfPlace()` / `checkRoundOver()` | Cartas na mesa, fora do lugar (maior primeiro nas salas novas), fim da rodada |
+| `descending()` / `orderEnds()` | Barra do tema: maior em cima; sala antiga segue do menor para o maior |
 | `hostCommit()` | Aumenta a versão, salva e envia o estado |
 | `hostLost()` / `finishReclaim()` / `newerState()` | Anfitrião provisório e volta do dono |
 | `syncTick()` / `stateHash()` / `acceptState()` | Conferência de sincronia (tick, ack, pull) |
 | `deckFor()` / `themeAt()` | Sorteio determinístico |
 | `startHost()` / `startGuest()` / `netReset()` | Ciclo de vida da sala |
+| `chatSend()` / `receiveChat()` | Conversa: envio, nome pelo lugar, deduplicação, limite e bloqueio de número |
+| `sendChatLog()` / `maybePullChat()` | Anfitrião entrega as mensagens recentes a quem entra ou reconecta |

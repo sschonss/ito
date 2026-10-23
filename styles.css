@@ -510,3 +510,30 @@ body.tv .r-cap{font-size:16px}
 .cat-group{margin:10px 0 6px;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
 .cat-group:first-of-type{margin-top:0}
 .field-group .cats+.cat-group{margin-top:14px}
+
+/* conversa da sala */
+.icon-btn.chat-fab{position:relative}
+.icon-btn.chat-fab svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.chat-badge{position:absolute;top:0;right:0;min-width:16px;height:16px;padding:0 4px;border-radius:99px;background:var(--brand);color:var(--brand-ink);font:700 10px/16px var(--font);text-align:center}
+.chat-sheet[open]{display:flex;flex-direction:column;height:min(72dvh,640px);max-height:min(72dvh,640px);padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+.chat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 4px}
+.chat-head h2{font:800 22px/1.2 var(--display);letter-spacing:-.02em;margin:0}
+.chat-head button{width:36px;height:36px;border:0;border-radius:10px;background:transparent;font-size:18px;color:var(--ink-2)}
+.chat-head button:active{background:var(--surface-2)}
+.chat-log{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:4px 6px 8px}
+.chat-empty{margin:12px 8px;color:var(--ink-2);font-size:14px}
+.chat-msg{max-width:86%;background:var(--surface-2);border-radius:16px 16px 16px 6px;padding:8px 12px}
+.chat-msg.mine{margin-left:auto;background:var(--brand-soft);border-radius:16px 16px 6px 16px}
+.chat-meta{display:block;font-size:11px;font-weight:600;color:var(--ink-2);margin-bottom:2px}
+.chat-msg.mine .chat-meta{text-align:right}
+.chat-msg p{margin:0;font-size:15px;white-space:pre-wrap;overflow-wrap:anywhere}
+.chat-warn{margin:0 8px 6px;color:var(--brand);font-size:14px;font-weight:700}
+.chat-note{margin:0 8px 8px;color:var(--ink-2);font-size:12px}
+.chat-form{display:flex;gap:8px;padding:0 4px}
+.chat-form input{flex:1;min-width:0;height:44px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2);padding:0 12px;font:400 16px var(--font);color:var(--ink)}
+.chat-form input:focus{outline:none;border-color:var(--brand)}
+.chat-form button{height:44px;padding:0 16px;border:0;border-radius:12px;background:var(--brand);color:var(--brand-ink);font-weight:600}
+.tv-chat{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:18;max-width:min(720px,calc(100% - 48px));display:flex;gap:8px;align-items:baseline;background:color-mix(in srgb,var(--ink) 90%,transparent);color:var(--bg);border-radius:14px;padding:10px 16px;font-size:18px;box-shadow:var(--shadow)}
+.tv-chat b{font-weight:700;white-space:nowrap}
+.tv-chat span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body:not(.tv) .tv-chat{display:none!important}

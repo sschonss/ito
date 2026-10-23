@@ -140,6 +140,20 @@ class Phone:
     async def round(self):
         return await self.js("NET.st ? NET.st.round : S.round")
 
+    async def open_chat(self):
+        if not await self.js("!!(document.getElementById('chat') && document.getElementById('chat').open)"):
+            await self.act('chatToggle')
+            await self.page.wait_for_selector('#chat[open]')
+
+    async def say(self, text):
+        await self.open_chat()
+        await self.page.fill('#chatInput', text)
+        await self.page.locator('#chatForm button').click()
+
+    async def chat_text(self):
+        await self.open_chat()
+        return await self.js("document.getElementById('chatLog').innerText")
+
 
 class E2E(unittest.IsolatedAsyncioTestCase):
     """Base: um navegador por teste, celulares em contextos separados."""
