@@ -1,6 +1,6 @@
 /* ito — Configuração, armazenamento, estado, sorteio, código da sala e componentes */
 'use strict';
-const VERSION = '2.2.0';
+const VERSION = '2.3.0';
 const MIN_ROUNDS = 1, MAX_ROUNDS = 20;
 
 
@@ -10,7 +10,16 @@ const P2P = window.ITO_P2P || {
   n: ['https://cdn.jsdelivr.net/npm/@trystero-p2p/nostr@0.25.4/+esm', 'https://esm.sh/@trystero-p2p/nostr@0.25.4'],
   m: ['https://cdn.jsdelivr.net/npm/@trystero-p2p/mqtt@0.25.4/+esm',  'https://esm.sh/@trystero-p2p/mqtt@0.25.4']
 };
-const APP_ID='ito-sschonss-github-io', CONNECT_TIMEOUT=15000, HOST_GRACE=5000;
+/* O Trystero, por omissão, usa só 5 relays Nostr (escolhidos pelo appId) e os
+   4 primeiros brokers MQTT. Nesta app isso caía em relays mortos ou com AUTH,
+   e no MQTT sobrava um broker que abre e três que nem conectam — o HiveMQ,
+   que aceita a sessão, ficava de fora. A lista abaixo entra inteira em
+   relayConfig.urls. São endereços públicos, sem segredo. */
+const RELAYS = window.ITO_RELAYS || {
+  n: ['wss://nos.lol','wss://nostr.mom','wss://purplepag.es','wss://nostr.wine','wss://offchain.pub','wss://purplerelay.com','wss://schnorr.me','wss://nostr.oxtr.dev'],
+  m: ['wss://broker.hivemq.com:8884/mqtt','wss://public:public@public.cloud.shiftr.io','wss://test.mosquitto.org:8081/mqtt','wss://broker.emqx.io:8084/mqtt']
+};
+const APP_ID='ito-sschonss-github-io', CONNECT_TIMEOUT=15000, HOST_GRACE=5000, SEEK_TRIES=3, RELAY_HOPS=8;
 
 /* ---------- Armazenamento ---------- */
 const ls = {

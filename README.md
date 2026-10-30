@@ -48,6 +48,7 @@ Quem cria a sala escolhe as categorias; a escolha vai no código da sala (cabem 
 - A biblioteca vem do jsDelivr (com esm.sh de reserva) e fica guardada no celular depois da primeira vez.
 - Para quem está no 4G/5G ou numa VPN, o app pede credenciais **TURN** de curta duração a um Worker da Cloudflare. Se isso falhar, usa a lista fixa de `config.js` (vazia por padrão) ou segue sem TURN. Detalhes: [`docs/turn.md`](docs/turn.md).
 - Cada celular cria uma chave própria. O anfitrião **assina** cada atualização da partida e os outros só aceitam o que vier assinado pela chave certa; o convite leva a impressão digital da chave do dono da sala. Ninguém consegue se passar pelo anfitrião ou entrar no lugar de outro jogador.
+- Se um celular não alcança o anfitrião mas alcança outro jogador, esse jogador **repassa** o estado assinado e o pedido (também assinado por quem o fez). Na tela aparece “conectado via” o nome de quem fez a ponte.
 
 ## PWA
 

@@ -36,6 +36,14 @@ class Relay:
     def __init__(self):
         self.rooms = {}
         self.lose_states_to = set()   # celulares que "perdem" as atualizações de estado (simula rede ruim)
+        self.cuts = set()             # pares de páginas que não se falam direto (os dois sentidos)
+
+    def cut(self, a, b):
+        """Impede o fio direto entre dois celulares. O resto da sala continua ligado."""
+        self.cuts.add(frozenset((id(a.page), id(b.page))))
+
+    def _blocked(self, pa, pb):
+        return frozenset((id(pa), id(pb))) in self.cuts
 
     async def _deliver(self, page, kind, t, f, n=None, d=None):
         try:
@@ -47,6 +55,7 @@ class Relay:
         page = source['page']; key = msg['kind'] + '|' + msg['room']; r = self.rooms.setdefault(key, {})
         if msg.get('join'):
             for pid, pg in list(r.items()):
+                if self._blocked(pg, page): continue
                 asyncio.ensure_future(self._deliver(pg, msg['kind'], 'join', msg['from']))
                 asyncio.ensure_future(self._deliver(page, msg['kind'], 'join', pid))
             r[msg['from']] = page
@@ -60,6 +69,7 @@ class Relay:
         data = json.loads(json.dumps(msg['data']))
         for pid in targets:
             if pid not in r: continue
+            if self._blocked(r[pid], page): continue
             if r[pid] in self.lose_states_to and isinstance(data, dict) and data.get('t') == 'state': continue
             asyncio.ensure_future(self._deliver(r[pid], msg['kind'], 'msg', msg['from'], msg['name'], data))
 

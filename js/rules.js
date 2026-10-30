@@ -135,18 +135,19 @@ const nextThemePos=st=>Math.max(st.themePos, st.themeFloor||0)+1;
 function hostCommit(){
   NET.st.ver=(NET.st.ver||0)+1;
   saveOnline(); showOnline();
-  refreshSig().then(ok=>{ if(ok || !KEYS.ok) broadcast(stateMsg()); });
+  const ver=NET.st.ver, st=NET.st;
+  refreshSig().then(ok=>{ if((ok || !KEYS.ok) && NET.st===st && st.ver===ver) publishState(); });
 }
-function sendAct(t, extra){
+async function sendAct(t, extra){
   const a=Object.assign({t, game:S.game, round:S.round, themePos:S.themePos}, extra||{});
   if(NET.reclaiming){ toast('Voltando como anfitrião… só um instante'); return; }
   if(NET.role==='host'){
     const me=NET.st.players.find(p=>p.cid===CID);
     if(applyAct(NET.st,a,me)){
-      if(a.t==='kick') NET.links.length && Object.keys(NET.peers).forEach(k=>{ if(NET.peers[k]===a.cid) sendTo(k,{t:'kicked'}); });
+      if(a.t==='kick') hostNotice('kicked', {to:a.cid}, a.cid);
       hostCommit();
     }
-  } else if(!sendToCid(NET.st.hostCid, {t:'act', a})) toast('Sem conexão com o anfitrião');
+  } else if(!(await guestSend({t:'act', a}))) toast('Sem conexão com a sala');
 }
 function startHost(room, saved){
   netReset(); NET.role='host'; lastEv='';

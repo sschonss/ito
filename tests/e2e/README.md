@@ -26,6 +26,7 @@ Capturas de tela de cada teste ficam em `tests/e2e/artifacts/`.
 | `test_a11y.py` | Régua descrita para leitor de tela, rótulo da carta, opção de letra maior salva |
 | `test_real_p2p.py` | Conexão de verdade pela internet (Nostr, MQTT e as duas). Só roda com `ITO_REAL_P2P=1` |
 | `test_resilience.py` | Anfitrião cai, alguém segura e ele volta a ser anfitrião sem perder rodada; atualização perdida é corrigida pela conferência; dica e nome digitados não se perdem |
+| `test_relay.py` | Sem fio direto com o anfitrião, o estado assinado e as ações (dica, carta, conversa) passam por outro jogador; ação forjada é ignorada; sinalização lista vários relays |
 | `test_turn.py` | Credenciais TURN falsas chegam no Trystero; Worker fora, lento ou com resposta ruim não impede entrar; lista fixa de `config.js` continua valendo; o service worker não guarda a resposta |
 
 Os testes rodam automaticamente no GitHub Actions a cada push e pull request (`.github/workflows/e2e.yml`).

@@ -2,8 +2,8 @@
    A mensagem vai direto para todo mundo (como a reação), para aparecer na hora.
    O anfitrião guarda só as últimas 50 e manda de novo para quem entra ou volta.
    Isso fica fora do estado assinado: o estado já viaja inteiro a cada mudança
-   e é conferido a cada 2 s. O nome de quem fala sai do lugar na sala (o cid da
-   conexão), nunca de um campo da mensagem. */
+   e é conferido a cada 2 s.    O nome de quem fala sai do lugar na sala. Mensagem assinada usa o cid
+   assinado; sem assinatura, só no fio direto, pelo cid da conexão. */
 'use strict';
 const CHAT_MAX=50, CHAT_LEN=200, CHAT_GAP=300, CHAT_BURST=8, CHAT_WINDOW=10000;
 NET.chat=[];
@@ -130,17 +130,26 @@ function commitChat(entry, fromLog){
   if(!fromLog) showTvChat(entry);
   return true;
 }
-function receiveChat(m, peer){
-  if(!m || typeof m.id!=='string' || !/^[a-z0-9]{6,32}$/.test(m.id) || typeof m.text!=='string') return;
-  if(chatSeen.has(m.id)) return;
-  const cid=NET.peers[peer];
-  if(!chatPlayerOk(cid)) return;
+/* Devolve true quando a mensagem é assinada e deve seguir para os outros.
+   Sem assinatura, só vale no fio direto: o nome sai de quem está ligado, não de um campo. */
+async function receiveChat(m, peer, relayed){
+  if(!m || typeof m.id!=='string' || !/^[a-z0-9]{6,32}$/.test(m.id) || typeof m.text!=='string') return false;
+  if(chatSeen.has(m.id)) return false;
+  let cid='', signed=false;
+  if(m.sig && m.cid){
+    const pk=pkFor(m.cid);
+    if(pk && await verifyText(pk, msgBody(m), m.sig)){ cid=m.cid; signed=true; }
+    else return false;
+  } else if(relayed) return false;
+  else cid=NET.peers[peer];
+  if(!chatPlayerOk(cid)) return false;
   const text=chatClean(m.text);
-  if(!text) return;
-  if(chatRoundOn() && chatLeaksNumber(text)){ chatRemember(m.id); return; }
-  if(!chatRateOk(cid)) return;
+  if(!text) return false;
+  if(chatRoundOn() && chatLeaksNumber(text)){ chatRemember(m.id); return false; }
+  if(!chatRateOk(cid)) return false;
   const at=(typeof m.at==='number' && m.at>0 && m.at<Date.now()+60000) ? m.at : Date.now();
   commitChat({id:m.id, cid, text, at, name:rosterName(cid)}, false);
+  return signed;
 }
 function ingestLog(item){
   if(!item || typeof item.id!=='string' || !/^[a-z0-9]{6,32}$/.test(item.id)) return false;
@@ -158,13 +167,21 @@ function applyChatLog(list){
   const last=NET.chat[NET.chat.length-1];
   if(last && document.body.classList.contains('tv') && Date.now()-last.at<20000) showTvChat(last);
 }
-function receiveChatLog(m, peer){
+async function receiveChatLog(m, peer, relayed){
   if(!m || !Array.isArray(m.log)) return;
-  const from=NET.peers[peer], host=NET.st && NET.st.hostCid;
-  /* chatPullPeer: a conexão de quem nos mandou um estado válido e de quem pedimos o histórico.
-     Continua valendo se o dono reassumir antes da resposta chegar. */
-  const trusted=(from && host && from===host) || (chatPullPeer && peer===chatPullPeer);
+  if(m.to && m.to!==CID) return;
+  let trusted=false;
+  if(m.sig && m.hostCid){
+    const pk=pkFor(m.hostCid);
+    if(pk && await verifyText(pk, msgBody(m), m.sig)) trusted=true;
+  }
+  if(!trusted && !relayed){
+    const from=NET.peers[peer], host=NET.st && NET.st.hostCid;
+    trusted=(from && host && from===host) || (chatPullPeer && peer===chatPullPeer);
+  }
   if(trusted){ chatStash=null; chatPullPeer=null; applyChatLog(m.log); return; }
+  if(relayed) return;
+  const from=NET.peers[peer], host=NET.st && NET.st.hostCid;
   if(from && host && from!==host){ if(chatStash && chatStash.peer===peer) chatStash=null; return; }
   chatStash={peer, log:m.log.slice(0,CHAT_MAX)};
 }
@@ -175,14 +192,17 @@ function flushChatStash(){
   if(from!==NET.st.hostCid){ chatStash=null; return; }
   const log=chatStash.log; chatStash=null; applyChatLog(log);
 }
-function sendChatLog(peer){
+async function sendChatLogTo(cid){
   if(!isHostNow() || !NET.chat.length) return;
-  sendTo(peer,{t:'chatlog', log:NET.chat.slice(-CHAT_MAX).map(m=>({id:m.id, cid:m.cid, text:m.text, at:m.at, name:m.name||rosterName(m.cid)}))});
+  const msg=await seal({t:'chatlog', hostCid:CID, to:cid||'', log:NET.chat.slice(-CHAT_MAX).map(m=>({id:m.id, cid:m.cid, text:m.text, at:m.at, name:m.name||rosterName(m.cid)}))});
+  noteRelay(msg.id);
+  if(cid && sendToCid(cid, msg)) return;
+  if(cid) floodFwd(cid, msg);
 }
-function maybePullChat(peer){
-  if(!peer || isHostNow() || chatAsked) return;
-  chatAsked=true; chatPullPeer=peer;
-  sendTo(peer,{t:'chatpull'});
+function maybePullChat(){
+  if(isHostNow() || chatAsked) return;
+  chatAsked=true;
+  guestSend({t:'chatpull'});
 }
 function chatReset(){
   NET.chat=[]; chatUnread=0; chatAsked=false; chatStash=null; chatPullPeer=null; chatPaintKey='';
@@ -216,7 +236,7 @@ function chatSend(){
   if(!chatRateOk(CID)){ toast('Calma, um de cada vez'); return; }
   const id=chatNewId(), at=Date.now();
   commitChat({id, cid:CID, text, at, name:rosterName(CID)}, false);
-  broadcast({t:'chat', id, text, at});
+  seal({t:'chat', id, text, at}).then(msg=>{ noteRelay(msg.id); broadcast(msg); });
   inp.value=''; chatWarn('');
 }
 function chatToggle(){
