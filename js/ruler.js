@@ -54,7 +54,7 @@ function tv(){
   const alive=aliveCids(), on=p=>p.on||alive.has(p.cid), hintOf=s=>(st.hints||{})[s]||'';
   if(st.phase==='lobby'){
     let qr=''; try{ qr=qrSvg(roomLink(st.code)); }catch(e){}
-    render(`<div class="tv-lobby">
+    render(`${viaNote()}<div class="tv-lobby">
       <div class="tv-qr">${qr}</div>
       <div class="tv-info"><p class="eyebrow">Entre na sala</p><div class="tv-code">${st.code}</div>
         <p class="tv-sub">Aponte a câmera para o QR code ou abra o ito e digite o código.</p>

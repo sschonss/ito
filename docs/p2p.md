@@ -61,7 +61,7 @@ flowchart LR
 1. Todos baixam o app do GitHub Pages.
 2. Cada celular entra numa "sala" de sinalização com o nome do código da sala (ex.: `KQXT-AVCR`).
 3. Pelos relays, os celulares trocam as ofertas WebRTC (SDP e candidatos ICE).
-4. A conexão direta abre e, a partir daí, **a partida trafega só entre os celulares**. Os relays deixam de ser usados.
+4. A conexão direta abre. A partida **não volta para o Nostr nem para o MQTT**: anda na malha WebRTC. Se um celular não alcança o anfitrião mas alcança outro jogador, esse jogador reencaminha o estado assinado e os pedidos.
 
 ### Passo a passo da conexão
 
@@ -90,7 +90,7 @@ sequenceDiagram
   else NAT bloqueia (comum no 4G/5G ou VPN)
     A->>B: via TURN (credenciais do Worker, ou a lista turn em config.js)
   end
-  Note over A,B: daqui em diante os relays não são mais usados
+  Note over A,B: daqui em diante o Nostr e o MQTT não carregam a partida. Se faltar o fio direto, outro jogador reencaminha.
 ```
 
 ## 3. Duas redes ao mesmo tempo
@@ -304,9 +304,10 @@ Cada celular cria uma chave **ECDSA P-256** na primeira vez que abre o app (`ini
 
 | O quê | Quem assina | Quem confere |
 |---|---|---|
-| `hello` (apresentação) | o próprio jogador, sobre `cid|sala|horário` | o anfitrião. Na primeira vez guarda a chave do jogador (`players[].pk`); depois, um `hello` com o mesmo `cid` e outra chave é ignorado |
-| `state` | o anfitrião da vez, sobre o estado inteiro (`refreshSig()`) | todos (`stateValid()`) |
-| `tick`, `ack`, `pull`, ações | ninguém | não precisam: só pedem ao anfitrião, e quem decide é ele |
+| `hello` (apresentação) | o próprio jogador, sobre cid, nome, telão, chave e sala | o anfitrião. Na primeira vez guarda a chave (`players[].pk`); depois, um `hello` com o mesmo `cid` e outra chave é ignorado |
+| `state` | o anfitrião da vez, sobre o estado inteiro, incluindo `ver` (`refreshSig()`) | todos (`stateValid()`). Pode chegar por outro jogador |
+| `act`, `name`, `bye`, `ack`, `pull`, `chat` | o jogador que fez o pedido | o anfitrião, com a chave guardada nesse `cid` |
+| `tick`, `chatlog`, `kicked`, `full`, `closed` | o anfitrião da vez | quem recebe. Sem a assinatura dele, só vale no fio direto |
 
 O estado carrega a chave pública do dono da sala (`ownerPk`). O convite leva a **impressão digital** dela (`#ABCD-EFGH~v2~k<12 hex>`), então quem entra pelo link já sabe qual chave esperar. Quem entra só digitando o código guarda a chave do primeiro estado que recebe.
 
@@ -316,7 +317,7 @@ flowchart TD
   O -- não --> X["Ignora"]
   O -- sim --> H{"hostCid é o dono?"}
   H -- sim --> V1{"Assinado pela chave do dono?"}
-  H -- não --> P{"Dono fora do ar para mim,<br/>veio do próprio aparelho do provisório<br/>e a chave dele é a que eu conhecia?"}
+  H -- não --> P{"Dono fora do ar para mim<br/>e a chave do provisório é a que eu já conhecia?<br/>No fio direto, a primeira vez também vale."}
   P -- não --> X
   P -- sim --> V2{"Assinado pela chave dele?"}
   V1 -- sim --> OK["Segue para as regras de versão"]
@@ -326,6 +327,30 @@ flowchart TD
 ```
 
 O dono da sala, quando já está no comando, não aceita estado de mais ninguém (só enquanto está voltando, `NET.reclaiming`). Se o navegador não tiver criptografia (página aberta sem https), o app segue sem assinar.
+
+### Malha: o estado anda mesmo sem fio direto com o anfitrião
+
+O anfitrião continua a ser a única fonte da verdade. O que muda é o caminho. Qualquer celular que receba um estado **assinado** e com `ver` **maior** do que o que já viu aceita e reencaminha esse mesmo pacote (assinatura inclusa) aos outros. Versão igual ou mais antiga não é reenviada: não há laço nem repetir estado velho. `ver` está dentro do objeto assinado (`JSON.stringify(st)`), então ninguém aumenta a versão sem a chave do anfitrião.
+
+No sentido contrário, o pedido do jogador (dica, carta, ordem, voto, nome, saída, conversa, apresentação) vai assinado com a chave desse jogador e leva um `id`. Quem está no meio confere a assinatura, se já conhece a chave, e repassa. Não consegue trocar o texto nem dizer que a ação é de outra pessoa. O anfitrião aplica uma vez só: o mesmo `id` não conta de novo.
+
+Quem só está ligado por outra pessoa vê **conectado via Ana** (o nome de quem reencaminhou o estado). O banner de “anfitrião desconectou” fica para quando esse caminho também some. Enquanto o tick assinado do anfitrião continua a chegar, ninguém assume a sala no lugar dele.
+
+```mermaid
+flowchart LR
+  H[Anfitrião]
+  A[Ana]
+  P[Pedro]
+  H <-->|WebRTC| A
+  A <-->|WebRTC| P
+  H -. sem fio direto .- P
+  H -- "state assinado ver 12" --> A
+  A -- "repassa ver 12" --> P
+  P -- "act assinado por Pedro" --> A
+  A -- "repassa" --> H
+```
+
+A apresentação (`hello`) e o histórico da conversa, quando precisam atravessar alguém, vão num envelope `fwd` com limite de saltos. Assim o celular do meio não fica com o lugar de quem enviou: a identidade do fio direto continua a ser o `hello` daquela conexão.
 
 ### Toques ao mesmo tempo contam uma vez
 
@@ -393,19 +418,31 @@ sequenceDiagram
 | `ito-sound`, `ito-tips`, `ito-big` | Preferências (sons, dicas, letra maior) |
 | `ito-turn` | Credenciais TURN já pedidas, até perto de vencer (24 h, com folga de 5 min) |
 
-## 9. Sem internet
+## 9. Sem internet, e quando a sala não aparece
 
-Não existe modo sem conexão: a partida sempre segue o anfitrião. Se a biblioteca não carregar ou a sala não for encontrada em 15 segundos, o app mostra o aviso e o botão **Tentar de novo**.
+Não existe modo sem conexão: a partida sempre segue o anfitrião. Se a biblioteca não carregar, o app avisa **Sem internet**. Se em 15 segundos ninguém aparecer, ele **entra de novo** na sala sozinho, até 3 vezes, e diz qual tentativa é. Se já houver alguém ligado mas o estado do anfitrião não chegar, o texto é outro: não é a mesma coisa que “a sala não existe”. O botão **Tentar de novo** continua lá.
+
+Porque é que a sala às vezes não aparece de todo (antes mesmo do WebRTC):
+
+- O Trystero, sozinho, só usa **5 relays Nostr**, sempre os mesmos para este `appId`, e só os **4 primeiros brokers MQTT**. Nesta versão da biblioteca, 2 desses 5 relays estavam mortos ou exigiam autenticação que o app não faz, e 3 dos 4 brokers MQTT não abriam da rede de teste. O broker que aceita a sessão (HiveMQ) ficava de fora da lista.
+- Vários brokers MQTT usam portas que não são 443 (`8081`, `8084`, `8884`). Há redes de celular e de empresa que deixam passar a web e cortam o resto.
+- O aviso antigo misturava três falhas: sinalização, gelo do WebRTC até ao anfitrião, e estado que não tinha por onde passar. As duas últimas agora seguem pela malha; a primeira alarga os relays e tenta de novo.
+
+A lista usada está em `RELAYS` (`js/core.js`) e entra em `relayConfig.urls`, que substitui o recorte pequeno da biblioteca. São endereços públicos (o `public:public` do shiftr é a conta demo já publicada pelo Trystero, não um segredo deste jogo).
 
 ```mermaid
 flowchart TD
   OPEN["Abre o convite"] --> LOAD{"Biblioteca carregou?"}
   LOAD -- não --> NOINT["Sem internet · Tentar de novo"]
-  LOAD -- sim --> FIND{"Achou o anfitrião em 15 s?"}
-  FIND -- sim --> ONLINE["Sala conectada"]
-  FIND -- não --> NOTFOUND["Não achamos a sala ainda · Tentar de novo"]
+  LOAD -- sim --> FIND{"Alguém da sala em 15 s?"}
+  FIND -- sim --> ST{"Chegou estado assinado?"}
+  ST -- sim --> ONLINE["Sala conectada"]
+  ST -- não --> WAIT["Há gente, mas falta o estado · Tentar de novo"]
+  FIND -- não --> AGAIN{"Ainda há tentativas automáticas?"}
+  AGAIN -- sim --> FIND
+  AGAIN -- não --> NOTFOUND["Não achamos a sala · Tentar de novo"]
   NOINT --> OPEN
-  NOTFOUND --> FIND
+  NOTFOUND --> OPEN
 ```
 
 ## 10. Carregamento e cache
@@ -422,10 +459,13 @@ Por padrão o app pede `iceServers` em `CFG.turnUrl` (o Worker `https://ito-turn
 
 ## 12. Limitações conhecidas
 
-- **Precisa de internet** para a primeira conexão (sinalização). Depois de conectados, o tráfego é direto.
+- **Precisa de internet** para achar a sala (sinalização). Depois, a partida anda na malha WebRTC, não nos relays Nostr/MQTT.
+- **Sem nenhum fio até outra pessoa da sala**, o reencaminhamento não tem por onde passar. A malha não substitui o TURN nem um relay que esteja fora.
 - **Se o Worker de TURN estiver fora**, o app entra na sala mesmo assim e volta ao comportamento antigo (lista `turn` ou só conexão direta). Alguns pares em redes móveis podem não se conectar nesse caso.
-- **Dependência de serviços públicos:** relays Nostr, brokers MQTT, STUN e CDN são de terceiros e podem ficar fora do ar. As duas redes e os endereços reserva reduzem o risco.
-- **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Quando a rede volta, prevalece o estado mais novo e o dono da sala reassume.
+- **Dependência de serviços públicos:** relays Nostr, brokers MQTT, STUN e CDN são de terceiros e podem ficar fora do ar. A lista maior e a segunda tentativa reduzem o risco; não o acabam.
+- **Anfitrião como fonte da verdade:** em caso de rede dividida, pode haver dois anfitriões por alguns segundos. Enquanto o tick assinado dele ainda chega por alguém, os outros não assumem. Quando a rede volta, prevalece o estado mais novo e o dono da sala reassume.
+- **Estado de anfitrião provisório reencaminhado** só é aceite se a chave dele já estava num estado anterior. Quem entra no meio de uma substituição e não vê o provisório direto espera o dono, ou um estado que já traga essa chave.
+- **Quem está no meio pode deixar de repassar** (não pode falsificar). Um jogador isolado de todos os outros continua de fora.
 - **Sem internet não tem jogo:** não existe modo sem conexão.
 - **Não é à prova de trapaça:** como as cartas são calculadas no próprio celular, alguém que saiba inspecionar o código no navegador poderia descobrir os números. Para um jogo entre amigos isso é aceitável. Impedir exigiria um servidor que guardasse as cartas.
 - **Assinaturas protegem contra anfitrião falso, não contra quem já está na sala ver os números:** quem tem o código entra como jogador normal.
@@ -459,8 +499,9 @@ Os arquivos são scripts comuns carregados em ordem pelo `index.html` e comparti
 
 | Função | Papel |
 |---|---|
-| `connect()` / `loadLib()` | Carrega o Trystero e entra na sala pelas duas redes |
-| `sendTo()` / `broadcast()` / `sendToCid()` | Envio de mensagens |
+| `connect()` / `loadLib()` | Carrega o Trystero e entra na sala pelas duas redes, com a lista `RELAYS` |
+| `sendTo()` / `broadcast()` / `sendToCid()` / `guestSend()` / `floodFwd()` | Envio direto e reencaminhamento (`fwd`) |
+| `publishState()` / `spreadState()` | Estado assinado: o anfitrião publica, quem tem versão mais nova repassa |
 | `onPeerJoin()` / `onPeerLeave()` | Presença |
 | `onMsg()` | Recebe e trata as mensagens |
 | `hostHello()` | Anfitrião recebe quem chegou e dá um lugar |

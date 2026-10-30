@@ -60,8 +60,11 @@ const act={
     if(v==='skip') act.skip(); else if(v==='voteStart') act.voteStart(); else if(v==='customTheme') act.customTheme();
   },
   saveHint(){ const i=$('#myHint'); if(!i) return; const text=i.value.trim().slice(0,30); i.blur(); delete drafts.hint; sendAct('hint',{text}); toast(text?`Dica enviada: “${text}”`:'Dica apagada'); },
-  react(b){ const now=Date.now(); if(now-lastReact<700) return; lastReact=now; const e=b.dataset.e, by=myLabel();
-    showReaction(e, by); SFX.pop(); broadcast({t:'react', e, by, id:Math.random().toString(36).slice(2)}); },
+  async react(b){ const now=Date.now(); if(now-lastReact<700) return; lastReact=now; const e=b.dataset.e, by=myLabel();
+    showReaction(e, by); SFX.pop();
+    const msg=await seal({t:'react', e, by});
+    seenReacts.add(msg.id); noteRelay(msg.id);
+    broadcast(msg); },
   voteStart(){ sendAct('voteStart'); },
   vote(b){ sendAct('vote',{i:+b.dataset.i}); },
   voteEnd(){ sendAct('voteEnd'); },
@@ -85,7 +88,7 @@ const act={
     const inp=$('#myName'); if(!inp) return;
     myName=inp.value.trim().slice(0,20); ls.set('ito-name',myName); inp.blur(); delete drafts.name;
     if(NET.role==='host'){ const me=NET.st.players.find(p=>p.cid===CID); if(me){ me.name=myName; hostCommit(); } }
-    else if(NET.role==='guest') sendToCid(NET.st&&NET.st.hostCid, {t:'name', name:myName});
+    else if(NET.role==='guest') guestSend({t:'name', name:myName});
     toast(myName?`Pronto, ${myName}`:'Nome removido');
   },
   start(){ sendAct('start'); },
@@ -159,10 +162,10 @@ const act={
   async leave(){
     if(NET.role==='host'){
       if(!await confirmBox('Encerrar a sala?','A sala acaba para todo mundo.','Encerrar')) return;
-      broadcast({t:'closed'}); await new Promise(r=>setTimeout(r,250));
+      await hostNotice('closed'); await new Promise(r=>setTimeout(r,250));
     } else if(NET.role==='guest'){
       if(!NET.spectator && NET.st && NET.st.phase!=='lobby' && !await confirmBox('Sair da sala?','Você pode voltar depois pelo mesmo link.','Sair')) return;
-      if(NET.st) sendToCid(NET.st.hostCid,{t:'bye'}); await new Promise(r=>setTimeout(r,150));
+      if(NET.st) await guestSend({t:'bye'}); await new Promise(r=>setTimeout(r,150));
     } else if(S && S.status==='play' && !await confirmBox('Sair da sala?','O progresso desta partida será apagado deste celular.','Sair')) return;
     netReset(); ls.del(ONLINE_KEY); S=null; P=null;
     history.replaceState(null,'',location.pathname); home();

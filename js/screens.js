@@ -1,14 +1,29 @@
 /* ito — Telas da sala conectada: entrando, sala de espera, jogo */
 'use strict';
+function viaNote(){
+  if(!NET.st || hostDirect() || !NET.viaCid || !hostReachable()) return '';
+  const p=NET.st.players.find(x=>x.cid===NET.viaCid);
+  const name=(p&&(p.name||`Jogador ${p.seat}`))||NET.viaName||'outra pessoa';
+  return `<p class="via-note">conectado via ${esc(name)}</p>`;
+}
 function connecting(){
   setMeta(`Sala <b>${NET.code}</b>`);
+  const peers=Object.keys(NET.peers).length;
   const stuck=NET.failed || NET.timedOut;
+  const seeking=(NET.seek||0)>0 && !stuck;
+  let title='Entrando na sala…', lead=`Sala ${NET.code}`;
+  if(NET.failed){ title='Sem internet'; lead='Confira a conexão e tente de novo.'; }
+  else if(NET.timedOut && peers>0){ title='Estado do anfitrião não chegou'; lead='Há alguém da sala por perto, mas o estado oficial não chegou. Toque em Tentar de novo.'; }
+  else if(NET.timedOut){ title='Não achamos a sala ainda'; lead='Procurámos nas redes de sinalização e não apareceu ninguém. Confira se quem criou a sala está com o ito aberto.'; }
+  else if(peers>0){ title='Quase lá…'; lead='Conectado a alguém da sala. Esperando o estado do anfitrião…'; }
+  else if(seeking){ title='Procurando de novo…'; lead=`Tentativa ${NET.seek+1} de ${SEEK_TRIES+1}. Sala ${NET.code}`; }
+  else { title='Procurando a sala…'; lead=`Sala ${NET.code}. Isso usa as redes públicas de sinalização.`; }
   render(`<section class="panel connect">
     ${stuck?`<div class="badge">${svgStroke(I.wifiOff)}</div>
-      <h2>${NET.failed?'Sem internet':'Não achamos a sala ainda'}</h2>
-      <p>${NET.failed?'Confira a conexão e tente de novo.':'Confira se quem criou a sala está com o ito aberto.'}</p>
+      <h2>${title}</h2>
+      <p>${lead}</p>
       <div class="stack"><button class="btn brand" data-act="retry">Tentar de novo</button></div>`
-    :`<div class="spinner"></div><h2>Entrando na sala…</h2><p>Sala ${NET.code}</p>`}
+    :`<div class="spinner"></div><h2>${title}</h2><p>${lead}</p>`}
   </section>
   <button class="btn text" data-act="leave">Cancelar</button>`, false, true);
 }
@@ -20,7 +35,8 @@ function lobby(){
   const count=st.players.filter(isOn).length;
   setMeta(`Sala <b>${st.code}</b>`);
   render(`
-  ${!hostAlive()?banner():''}
+  ${hostBanner()?banner():''}
+  ${viaNote()}
   ${roomCard(st.code, `${st.rounds} ${st.rounds===1?'rodada':'rodadas'} · ${catNames(st.mask)}`)}
   <p class="tv-tip">${svgStroke(I.tv)}<span>Tem TV ou notebook por perto? Abra o ito nele, digite o código e toque em <b>Entrar como telão</b>.</span></p>
   <section class="panel">
@@ -60,7 +76,7 @@ function historyList(){
   return `<div class="history"><p class="eyebrow">Placar da noite</p><ul>${h.map(x=>`<li><span>Partida ${x.game}</span><strong>${x.score} de ${x.total}</strong></li>`).join('')}</ul></div>`;
 }
 function game(){
-  const online=true, hostGone=!hostAlive(), amHost=isHostNow(), hn=esc(hostName());
+  const online=true, hostGone=hostBanner(), amHost=isHostNow(), hn=esc(hostName());
   setMeta(`<b>${esc(nameOf(S.seat))}</b> · ${S.code}`);
   const key=S.code+'|'+S.game+'|'+S.round; if(key!==peekKey){ peek=false; peekKey=key; }
   const score=S.results.filter(x=>x===1).length;
@@ -143,7 +159,7 @@ function game(){
               : `<button class="btn soft" disabled>Esperando ${hn} ${last?'abrir o placar':'passar a rodada'}</button>`)
     : (amHost ? `<button class="btn brand" data-act="revealPlan">${svgStroke(I.eye)}${pending.length>1?'Revelar nessa ordem':'Revelar a última carta'}</button>`
               : `<button class="btn soft" disabled>Quando todos concordarem, ${hn} revela</button>`);
-  render(`${hostGone?banner():''}${tips}${statusTop(score)}${S.roundOver?'':themeCard}${S.roundOver?'':cardHtml+hintRow}${result}${order}${table}${reactFab()}
+  render(`${hostGone?banner():''}${viaNote()}${tips}${statusTop(score)}${S.roundOver?'':themeCard}${S.roundOver?'':cardHtml+hintRow}${result}${order}${table}${reactFab()}
     <div class="dock"><div class="dock-inner">${dock}</div></div>`, true, true);
   const hi=$('#myHint'); if(hi){ hi.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); act.saveHint(); } }); hi.addEventListener('input',()=>{ drafts.hint={k:key, v:hi.value}; }); }
   if(S.roundOver && Date.now()<nextReadyAt) setTimeout(()=>{ if(NET.st) showOnline(); }, nextReadyAt-Date.now()+30);
