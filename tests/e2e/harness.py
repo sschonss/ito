@@ -167,6 +167,12 @@ class Phone:
 
 class E2E(unittest.IsolatedAsyncioTestCase):
     """Base: um navegador por teste, celulares em contextos separados."""
+    def note_page_error(self, name, error):
+        """Erros de JavaScript contam no fim do teste. Uma nova tentativa pode ignorá-los ao fechar o celular."""
+        if getattr(self, 'ignore_page_errors', False):
+            return
+        self.errors.append(f'{name}: {error}')
+
     async def asyncSetUp(self):
         self.pw = await async_playwright().start()
         self.browser = await self.pw.chromium.launch()
@@ -232,7 +238,7 @@ class E2E(unittest.IsolatedAsyncioTestCase):
                                 headers={'content-type': 'text/javascript', 'access-control-allow-origin': '*'})
             await ctx.route(CDN, route)
         page = await ctx.new_page()
-        page.on('pageerror', lambda e, n=name: self.errors.append(f'{n}: {e}'))
+        page.on('pageerror', lambda e, n=name: self.note_page_error(n, e))
         p = Phone(self, page, name); self.phones.append(p)
         return p
 
